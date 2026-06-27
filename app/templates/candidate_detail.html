@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}候选人详情{% endblock %}
+{% block page_title %}候选人详情{% endblock %}
+{% block page_subtitle %}默认展示 HR 和面试官可读信息，JSON 仅用于技术排查{% endblock %}
+{% block content %}
+{% set current = rows[0] if rows else none %}
+<div class="detail-layout">
+  <div class="stack">
+    <section class="work-surface">
+      <div class="surface-body profile-hero">
+        <span class="profile-avatar">{{ (candidate.name or '待')[:1] }}</span>
+        <div class="profile-main">
+          <div class="profile-title">
+            <h2>{{ candidate.name or '待补充姓名' }}</h2>
+            <span class="status status-primary">{{ candidate.dedup_status.value }}</span>
+          </div>
+          <div class="profile-meta">
+            <span>电话：{{ candidate.phone or '未提供' }}</span>
+            <span>邮箱：{{ candidate.email or '未提供' }}</span>
+            <span>候选人 ID：{{ candidate.id }}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="work-surface">
+      <header class="surface-header">
+        <div>
+          <h2 class="surface-title">补充资料</h2>
+          <p class="card-subtitle">用于修正解析缺失字段；原始简历和技术 JSON 不会被覆盖。</p>
+        </div>
+      </header>
+      <div class="surface-body">
+        <form method="post" action="/api/candidates/{{ candidate.id }}/supplement">
+          <div class="form-grid">
+            <div class="field"><label for="supplement-name">姓名</label><input class="input" id="supplement-name" name="name" value="{{ candidate.name or '' }}" placeholder="待补充姓名"></div>
+            <div class="field"><label for="supplement-phone">手机号</label><input class="input" id="supplement-phone" name="phone" value="{{ candidate.phone or '' }}" placeholder="待补充手机号"></div>
+            <div class="field"><label for="supplement-email">邮箱</label><input class="input" id="supplement-email" name="email" value="{{ candidate.email or '' }}" placeholder="待补充邮箱"></div>
+            <div class="field"><label for="supplement-skills">技能</label><input class="input" id="supplement-skills" name="skills" value="{{ profile.skills|join('；') if profile.skills else '' }}" placeholder="Python；FastAPI；SQL"></div>
+          </div>
+          <div class="field"><label for="supplement-experience">经历</label><textarea class="textarea" id="supplement-experience" name="experience" placeholder="每行一条项目、实习或工作经历"></textarea></div>
+          <div class="field"><label for="supplement-chat">聊天摘要</label><textarea class="textarea" id="supplement-chat" name="chat_summary" placeholder="补充初步沟通、到岗时间、意向城市等">{{ profile.chat_summary if profile.chat_summary != '暂无聊天记录，本地上传任务可后续补充。' else '' }}</textarea></div>
+          <div class="field"><label for="supplement-note">备注</label><textarea class="textarea" id="supplement-note" name="note" placeholder="仅内部可见的补充备注">{{ profile.note if profile.note is defined else '' }}</textarea></div>
+          <div class="form-actions"><button class="button button-primary" type="submit">保存补充资料</button></div>
+        </form>
+      </div>
+    </section>
+
+    <section class="work-surface">
+      <header class="surface-header">
+        <div>
+          <h2 class="surface-title">候选人画像</h2>
+          <p class="card-subtitle">由简历解析结果、来源记录和人工确认信息整理生成。</p>
+        </div>
+      </header>
+      <div class="surface-body">
+        <div class="tabs" data-tabs role="tablist" aria-label="候选人资料">
+          <button class="tab-button is-active" type="button" data-tab="summary">简历摘要</button>
+          <button class="tab-button" type="button" data-tab="experience">经历与技能</button>
+          <button class="tab-button" type="button" data-tab="chat">聊天摘要</button>
+          <button class="tab-button" type="button" data-tab="evaluation">AI 评估</button>
+          <button class="tab-button" type="button" data-tab="interview">面试</button>
+          <button class="tab-button" type="button" data-tab="history">操作记录</button>
+          <button class="tab-button" type="button" data-tab="technical">技术详情</button>
+        </div>
+
+        <section class="tab-panel is-active" data-tab-panel="summary">
+          <div class="stack">
+            <div class="notice">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>
+              这里展示可读摘要；原始结构化 JSON 不作为默认阅读界面。
+            </div>
+            <p>{{ profile.headline }}</p>
+            <div class="info-grid">
+              <div class="info-item"><span>可到岗/可面试</span><strong>{{ profile.availability }}</strong></div>
+              <div class="info-item"><span>缺失字段</span><strong>{{ profile.missing_fields|join('；') if profile.missing_fields else '无明显缺失' }}</strong></div>
+              <div class="info-item"><span>数据来源</span><strong>{{ candidate.sources|length }} 条来源记录</strong></div>
+            </div>
+            {% if profile.warnings %}
+            <div class="notice notice-warning">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>
+              {{ profile.warnings|join('；') }}
+            </div>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="experience">
+          <div class="stack">
+            <section class="stack-sm">
+              <h3 class="section-title">技能标签</h3>
+              <div class="tag-list">
+                {% for skill in profile.skills %}
+                <span class="tag tag-primary">{{ skill }}</span>
+                {% else %}
+                <span class="tag">待识别技能</span>
+                {% endfor %}
+              </div>
+            </section>
+            <section class="grid-equal">
+              <div class="stack-sm">
+                <h3 class="section-title">教育背景</h3>
+                {% if profile.education %}
+                <ul class="summary-list">{% for item in profile.education %}<li>{{ item }}</li>{% endfor %}</ul>
+                {% else %}
+                <p class="muted">未识别到教育背景，待人工补充。</p>
+                {% endif %}
+              </div>
+              <div class="stack-sm">
+                <h3 class="section-title">项目 / 实习 / 工作经历</h3>
+                {% set experiences = profile.projects + profile.internships + profile.work_experience %}
+                {% if experiences %}
+                <div class="activity-list">
+                  {% for item in experiences %}
+                  <div class="activity-item">
+                    <span class="activity-dot"></span>
+                    <span><strong>{{ item.title }}</strong><br>{{ item.description }}</span>
+                    <span class="activity-time">证据</span>
+                  </div>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <p class="muted">未识别到明确经历，建议在人工确认或面试中补充。</p>
+                {% endif %}
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="chat">
+          <div class="stack-sm">
+            <h3 class="section-title">初步沟通摘要</h3>
+            <p>{{ profile.chat_summary }}</p>
+            <div class="notice">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>
+              本地上传简历默认不含聊天记录；从模拟平台或后续企业微信接入采集的数据会在这里展示。
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="evaluation">
+          {% if current and current.dimensions %}
+          <div class="stack">
+            <div class="notice">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#spark"/></svg>
+              {{ current.evaluation_reason }}
+            </div>
+            <div class="table-wrap">
+              <table class="data-table evidence-table">
+                <thead>
+                  <tr>
+                    <th>评分维度</th>
+                    <th>分数</th>
+                    <th>JD 要求</th>
+                    <th>简历证据</th>
+                    <th>置信度</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in current.dimensions %}
+                  <tr>
+                    <td>{{ item.label or item.name }}</td>
+                    <td><strong>{{ item.score|round(0)|int }}</strong></td>
+                    <td>{{ item.jd_requirement or '未提供' }}</td>
+                    <td>{{ item.resume_evidence or '未找到明确证据' }}</td>
+                    <td>{{ ((item.confidence or 0) * 100)|round(0)|int }}%</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% if current.missing_information %}
+            <div class="notice notice-warning">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>
+              缺失信息：{{ current.missing_information|join('；') }}
+            </div>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="empty-state">
+            <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#spark"/></svg>
+            <h3>尚未生成 AI 评估</h3>
+            <p>运行评估后，这里会展示 JD 要求、简历证据、缺失信息和置信度。</p>
+          </div>
+          {% endif %}
+        </section>
+
+        <section class="tab-panel" data-tab-panel="interview">
+          <div class="info-grid">
+            <div class="info-item"><span>面试时间</span><strong>{{ current.interview_time if current and current.interview_time else '未确认' }}</strong></div>
+            <div class="info-item"><span>会议状态</span><strong>{% if current and current.meeting_url %}<a href="{{ current.meeting_url }}">Mock 腾讯会议</a>{% else %}未创建{% endif %}</strong></div>
+            <div class="info-item"><span>通知渠道</span><strong>邮件 / 企业微信待接入</strong></div>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="history">
+          <div class="activity-list">
+            {% for log in audits %}
+            <div class="activity-item">
+              <span class="activity-dot"></span>
+              <span>{{ log.actor }} · {{ log.action }}</span>
+              <time class="activity-time">{{ log.created_at }}</time>
+            </div>
+            {% else %}
+            <p class="muted">暂无操作记录</p>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="technical">
+          <details class="technical-details">
+            <summary>结构化 JSON、解析器输出和调试数据</summary>
+            <pre>{{ candidate.structured_data|default({}, true)|tojson(indent=2) }}</pre>
+          </details>
+        </section>
+      </div>
+    </section>
+
+    {% for row in rows %}
+    <section class="work-surface">
+      <header class="surface-header">
+        <div>
+          <h2 class="surface-title">{{ row.job_title }}</h2>
+          <p class="card-subtitle">{{ row.channel }} · {{ row.owner }}</p>
+        </div>
+        <span class="status status-primary">{{ row.status_label }}</span>
+      </header>
+      <div class="surface-body">
+        <div class="decision-bar">
+          <p>AI 只提供辅助意见，最终决定由 HR 或面试官作出。</p>
+          <div class="button-row">
+            <form method="post" action="/api/applications/{{ row.id }}/evaluate"><button class="button" type="submit">运行 AI 评估</button></form>
+            {% if row.status == 'evaluation_review' %}
+            <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="on_hold"><input type="hidden" name="reason" value="HR 暂缓"><button class="button" type="submit">暂缓</button></form>
+            <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="rejected"><input type="hidden" name="reason" value="HR 人工淘汰"><button class="button button-danger" type="submit" data-confirm="淘汰候选人需要人工确认，是否继续？">淘汰</button></form>
+            <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="interview_pending"><input type="hidden" name="reason" value="HR 人工确认进入面试"><button class="button button-primary" type="submit">进入面试</button></form>
+            {% elif row.status == 'interview_pending' %}
+            <form method="post" action="/api/applications/{{ row.id }}/schedule"><button class="button button-primary" type="submit">生成面试时段</button></form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+
+  <aside class="work-surface context-panel">
+    <header class="surface-header"><h2 class="surface-title">当前上下文</h2></header>
+    <div class="surface-body context-list">
+      <div class="context-item"><span>当前阶段</span><strong>{{ current.status_label if current else '暂无投递' }}</strong></div>
+      <div class="context-item"><span>负责人</span><strong>{{ current.owner if current else '未分配' }}</strong></div>
+      <div class="context-item"><span>AI 总分</span><strong>{{ current.score if current and current.score is not none else '待评估' }}</strong></div>
+      <div class="context-item"><span>下一步动作</span><strong>{% if current and current.status == 'evaluation_review' %}人工审核评估结果{% elif current and current.status == 'interview_pending' %}生成候选时段{% else %}按当前状态继续处理{% endif %}</strong></div>
+      <div class="context-item"><span>最近更新</span><strong>{{ current.updated_at if current else '—' }}</strong></div>
+      <form method="post" action="/api/candidates/{{ candidate.id }}/delete" class="danger-zone">
+        <div class="field"><label for="delete-confirm">删除候选人数据</label><input class="input" id="delete-confirm" name="confirm" placeholder="输入 DELETE 确认"></div>
+        <button class="button button-danger" type="submit" data-confirm="确认删除该候选人及其投递、来源和流程数据？此操作不可撤销。">删除数据</button>
+      </form>
+    </div>
+  </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}工作台{% endblock %}
+{% block page_title %}工作台{% endblock %}
+{% block page_subtitle %}今天必须处理的任务与招聘阻塞{% endblock %}
+{% block topbar_actions %}<a class="button button-primary" href="/import"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#database"/></svg>采集招聘数据</a>{% endblock %}
+{% block content %}
+<section class="metrics-grid" aria-label="今日任务摘要">
+  {% for label,key,state,help in [
+    ('待审核','pending_review','is-warning','需要人工查看证据'),
+    ('待排期','pending_schedule','','等待生成面试时段'),
+    ('待反馈','pending_feedback','','面试后等待评价'),
+    ('已超时','overdue','is-danger','需要立即处理')] %}
+  <article class="metric-card">
+    <div class="metric-top"><span class="metric-label">{{ label }}</span><span class="metric-state {{ state }}">{{ help }}</span></div>
+    <div class="metric-value {% if state == 'is-danger' and summary[key] %}text-danger{% elif state == 'is-warning' and summary[key] %}text-warning{% endif %}">{{ summary[key]|default(0) }}</div>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="grid-2">
+  <article class="work-surface">
+    <header class="surface-header"><div><h2 class="surface-title">我的待办</h2><p class="card-subtitle">按截止时间排序，可直接进入处理上下文</p></div><a class="section-link" href="/follow-ups">查看全部</a></header>
+    <div class="surface-body task-list">
+      {% for task in tasks %}
+      <div class="task-item">
+        <span class="task-marker" aria-hidden="true"><svg class="icon"><use href="/static/icons.svg#clock"/></svg></span>
+        <span class="task-copy"><strong>{{ task.reason|default(task.rule_code, true) }}</strong><small>{{ task.suggested_action|default('请及时处理', true) }} · {{ task.owner|default('未分配', true) }}</small></span>
+        <span class="task-time">{{ task.due_at or '未设置截止时间' }}</span>
+        <a class="button button-sm" href="/follow-ups">处理</a>
+      </div>
+      {% else %}
+      <div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#check"/></svg><h3>当前没有待办</h3><p>采集模拟招聘数据后，系统会根据状态和超时规则生成任务。</p><a class="button button-primary" href="/mock-platform">采集模拟数据</a></div>
+      {% endfor %}
+    </div>
+  </article>
+
+  <aside class="work-surface">
+    <header class="surface-header"><div><h2 class="surface-title">招聘风险与自动化状态</h2><p class="card-subtitle">失败原因和人工接管入口集中展示</p></div></header>
+    <div class="surface-body risk-list">
+      <div class="risk-item"><svg class="icon risk-icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg><span><strong>待人工确认身份</strong><small>{{ summary.pending_review }} 条记录可能缺少关键字段或等待评估审核</small></span><a class="button button-sm" href="/candidates">查看</a></div>
+      <div class="risk-item"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#spark"/></svg><span><strong>模型调用状态</strong><small>当前使用 {{ 'Mock 零成本模式' if summary.total_candidates is defined else '待接入' }}；失败时自动降级</small></span><a class="button button-sm" href="/settings">配置</a></div>
+      <div class="risk-item"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><span><strong>会议与日历同步</strong><small>当前使用 Mock 适配器，真实腾讯会议凭证待接入</small></span><span class="status status-warning">待接入</span></div>
+      <div class="risk-item"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#external"/></svg><span><strong>招聘平台连接器</strong><small>模拟平台可用，正式 API / 受控 RPA 待企业授权</small></span><span class="status status-warning">待接入</span></div>
+    </div>
+  </aside>
+</section>
+
+<section class="work-surface" style="margin-top:16px">
+  <header class="surface-header"><div><h2 class="surface-title">最近活动</h2><p class="card-subtitle">操作人、Agent、对象、结果与时间</p></div><a class="section-link" href="/audit">完整审计日志</a></header>
+  <div class="surface-body activity-list">
+    {% for log in audits %}
+    <div class="activity-item"><span class="activity-dot" aria-hidden="true"></span><span><strong>{{ log.actor }}</strong> 执行 {{ log.action }}，对象 {{ log.entity_type }}{% if log.entity_id %} #{{ log.entity_id }}{% endif %}</span><time class="activity-time">{{ log.created_at }}</time></div>
+    {% else %}<div class="empty-state"><h3>暂无活动记录</h3><p>系统执行采集、评估和人工决策后会自动记录。</p></div>{% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}审计日志{% endblock %}
+{% block page_title %}审计日志{% endblock %}
+{% block page_subtitle %}操作人、Agent、对象、结果与错误追溯{% endblock %}
+{% block content %}
+<div class="toolbar"><div class="search-field"><svg class="icon search-icon" aria-hidden="true"><use href="/static/icons.svg#search"/></svg><input class="input" placeholder="搜索操作、实体或操作者" data-filter-table="#auditTable" aria-label="搜索审计日志"></div><select class="select" disabled><option>结果筛选：待接入</option></select><select class="select" disabled><option>时间范围：待接入</option></select></div>
+<article class="work-surface"><div class="table-wrap"><table class="data-table" id="auditTable"><thead><tr><th>时间</th><th>操作者 / Agent</th><th>操作</th><th>对象</th><th>结果摘要</th><th class="action-cell">详情</th></tr></thead><tbody>
+{% for log in logs %}<tr><td class="nowrap">{{ log.created_at }}</td><td>{{ log.actor }}</td><td><span class="method">{{ log.action }}</span></td><td>{{ log.entity_type }} #{{ log.entity_id or '-' }}</td><td class="log-detail">{{ (log.details or log.after_data or {})|tojson }}</td><td class="action-cell"><details><summary class="button button-sm">展开</summary><pre style="margin-top:8px;max-width:420px;white-space:pre-wrap">{{ {'input_summary':'敏感字段已脱敏','details':(log.details or {}),'result':(log.after_data or {}),'error':none}|tojson(indent=2) }}</pre></details></td></tr>{% else %}<tr><td colspan="6"><div class="empty-state"><h3>暂无日志</h3><p>采集、评估、人工决策和配置变更都会自动记录。</p></div></td></tr>{% endfor %}
+</tbody></table></div></article>
+{% endblock %}

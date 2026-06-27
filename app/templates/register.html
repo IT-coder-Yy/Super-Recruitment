@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta name="csrf-token" content="{{ csrf_token }}"><title>注册 · TalentFlow</title><link rel="stylesheet" href="/static/css/admin.css"></head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <section class="auth-intro" aria-label="TalentFlow 平台介绍">
+      <a class="auth-brand" href="/login"><span class="brand-mark" aria-hidden="true">T</span><span><strong>TalentFlow</strong><small>招聘运营控制台</small></span></a>
+      <div class="auth-intro-copy"><h1>创建本地 Demo 账号</h1><p>账号仅用于当前演示环境。真实部署建议关闭自助注册并接入企业身份认证。</p></div>
+    </section>
+    <section class="auth-panel">
+      <div class="auth-form-wrap">
+        <header class="auth-header"><h2>创建账号</h2><p>填写用户名和密码开始使用</p></header>
+        {% if error %}<div class="auth-alert auth-alert-error" role="alert" tabindex="-1" autofocus>{{ error }}</div>{% endif %}
+        <form class="auth-form" method="post" action="/register">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="field"><label for="username">用户名</label><input class="input auth-input" id="username" name="username" type="text" value="{{ username|default('', true) }}" autocomplete="username" minlength="3" required autofocus placeholder="请输入用户名" aria-describedby="username-rule"><small class="field-help" id="username-rule">至少 3 个字符，英文字母不区分大小写。</small></div>
+          <div class="field"><label for="password">密码</label><input class="input auth-input" id="password" name="password" type="password" autocomplete="new-password" minlength="6" required placeholder="请输入密码" aria-describedby="password-rule"><small class="field-help" id="password-rule">至少 6 个字符，密码仅保存加盐哈希。</small></div>
+          <button class="button button-primary auth-submit" type="submit">创建账号</button>
+        </form>
+        <p class="auth-switch">已有账号？<a href="/login">返回登录</a></p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

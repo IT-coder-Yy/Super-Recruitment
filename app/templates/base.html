@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{% block title %}招聘工作台{% endblock %} · TalentFlow</title>
+  <link rel="stylesheet" href="/static/css/admin.css">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="主导航" tabindex="-1">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">T</span>
+        <span><strong>TalentFlow</strong><small>招聘运营控制台</small></span>
+      </a>
+      <nav class="side-nav">
+        <p class="nav-label">概览</p>
+        {% for page, href, icon, label in [
+          ('workbench','/','home','工作台'),
+          ('dashboard','/dashboard','chart','实时看板')] %}
+        <a class="nav-item {% if active_page|default('') == page %}is-active{% endif %}" href="{{ href }}" {% if active_page|default('') == page %}aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#{{ icon }}"/></svg><span>{{ label }}</span>
+        </a>
+        {% endfor %}
+        <p class="nav-label">招聘流程</p>
+        <a class="nav-item {% if active_page|default('') in ['candidates','candidate_detail'] %}is-active{% endif %}" href="/candidates" {% if active_page|default('') in ['candidates','candidate_detail'] %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#users"/></svg><span>候选人</span></a>
+        <a class="nav-item {% if active_page|default('') == 'import' %}is-active{% endif %}" href="/import" {% if active_page|default('') == 'import' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#database"/></svg><span>数据采集</span></a>
+        <a class="nav-item {% if active_page|default('') == 'mock_platform' %}is-active{% endif %}" href="/mock-platform" {% if active_page|default('') == 'mock_platform' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#external"/></svg><span>模拟招聘平台</span></a>
+        <a class="nav-item {% if active_page|default('') == 'evaluations' %}is-active{% endif %}" href="/evaluations" {% if active_page|default('') == 'evaluations' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#spark"/></svg><span>AI 评估</span>{% if pending_evaluations|default(0) %}<span class="nav-badge" aria-label="{{ pending_evaluations }} 项待审核">{{ pending_evaluations }}</span>{% endif %}</a>
+        <a class="nav-item {% if active_page|default('') == 'interviews' %}is-active{% endif %}" href="/interviews" {% if active_page|default('') == 'interviews' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><span>面试排期</span></a>
+        <a class="nav-item {% if active_page|default('') == 'offers' %}is-active{% endif %}" href="/offers" {% if active_page|default('') == 'offers' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#audit"/></svg><span>Offer</span></a>
+        <a class="nav-item {% if active_page|default('') == 'onboarding' %}is-active{% endif %}" href="/onboarding" {% if active_page|default('') == 'onboarding' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#checklist"/></svg><span>入职跟进</span></a>
+        <a class="nav-item {% if active_page|default('') == 'follow_ups' %}is-active{% endif %}" href="/follow-ups" {% if active_page|default('') == 'follow_ups' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#checklist"/></svg><span>跟进中心</span>{% if overdue_count|default(0) %}<span class="nav-badge nav-badge-danger" aria-label="{{ overdue_count }} 项超时">{{ overdue_count }}</span>{% endif %}</a>
+        <p class="nav-label">系统</p>
+        <a class="nav-item {% if active_page|default('') == 'notifications' %}is-active{% endif %}" href="/notifications" {% if active_page|default('') == 'notifications' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#bell"/></svg><span>通知与同步</span></a>
+        <a class="nav-item {% if active_page|default('') == 'audit' %}is-active{% endif %}" href="/audit" {% if active_page|default('') == 'audit' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#audit"/></svg><span>审计日志</span></a>
+        <a class="nav-item {% if active_page|default('') == 'settings' %}is-active{% endif %}" href="/settings" {% if active_page|default('') == 'settings' %}aria-current="page"{% endif %}><svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#settings"/></svg><span>系统设置</span></a>
+      </nav>
+      <div class="sidebar-footer"><span class="status-dot" aria-hidden="true"></span><span><strong>系统运行正常</strong><small>本地演示环境</small></span></div>
+    </aside>
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button menu-button" type="button" data-sidebar-toggle aria-label="打开导航" aria-controls="sidebar" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#menu"/></svg></button>
+          <div class="page-heading-compact"><h1>{% block page_title %}招聘工作台{% endblock %}</h1><p>{% block page_subtitle %}{% endblock %}</p></div>
+        </div>
+        <div class="topbar-actions">
+          {% block topbar_actions %}{% endblock %}
+          <button class="icon-button" type="button" aria-label="通知"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#bell"/></svg>{% if notification_count|default(0) %}<span class="notification-count">{{ notification_count }}</span>{% endif %}</button>
+          <div class="user-chip"><span class="avatar" aria-hidden="true">{{ current_user.username[:1]|upper }}</span><span class="user-copy"><strong>{{ current_user.username }}</strong><small>招聘管理员</small></span></div>
+          <form class="logout-form" method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-ghost button-sm logout-button" type="submit"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#logout"/></svg><span>退出</span></button></form>
+        </div>
+      </header>
+      <main class="page-content" id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
+    </div>
+  </div>
+  <button class="sidebar-scrim" data-sidebar-toggle aria-label="关闭导航"></button>
+  <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="true"></div>
+  <script src="/static/js/admin.js" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

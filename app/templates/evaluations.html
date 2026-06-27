@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}AI 评估{% endblock %}
+{% block page_title %}AI 评估审核{% endblock %}
+{% block page_subtitle %}审核模型证据并作出人工决定{% endblock %}
+{% block content %}
+{% set selected = rows[0] if rows else none %}
+<div class="review-layout">
+  <aside class="work-surface review-queue"><header class="surface-header"><div><h2 class="surface-title">审核队列</h2><p class="card-subtitle">{{ rows|length }} 条记录</p></div></header>
+    {% for row in rows %}<a class="review-item {% if loop.first %}is-active{% endif %}" href="/candidates/{{ row.candidate_id }}"><div class="review-item-head"><strong>{{ row.candidate_name }}</strong><span class="review-score">{{ '%.0f'|format(row.score) if row.score is not none else '—' }}</span></div><p>{{ row.job_title }} · {{ row.status_label }}</p><p>等待时长：待接入 · 置信度：{% if row.dimensions %}{{ ((row.dimensions|map(attribute='confidence')|select|list|sum / (row.dimensions|map(attribute='confidence')|select|list|length or 1)) * 100)|round|int }}%{% else %}待评估{% endif %}</p></a>{% else %}<div class="empty-state"><h3>审核队列为空</h3></div>{% endfor %}
+  </aside>
+  <section class="work-surface">
+    {% if selected %}
+    <header class="surface-header"><div><h2 class="surface-title">{{ selected.candidate_name }} · {{ selected.job_title }}</h2><p class="card-subtitle">{{ selected.channel }} · {{ selected.owner }}</p></div><span class="status status-primary">{{ selected.status_label }}</span></header>
+    <div class="surface-body stack">
+      <div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#spark"/></svg>{{ selected.evaluation_reason or '尚未生成评估。运行 Mock 模型也可完整演示证据化评分。' }}</div>
+      {% if selected.dimensions %}<div class="table-wrap"><table class="data-table evidence-table"><thead><tr><th>评分维度</th><th>分数</th><th>JD 要求</th><th>简历证据</th><th>置信度</th></tr></thead><tbody>{% for item in selected.dimensions %}<tr><td>{{ item.name }}</td><td><strong>{{ item.score|round(0)|int }}</strong></td><td>{{ item.jd_requirement or '未提供' }}</td><td>{{ item.resume_evidence or '证据缺失' }}</td><td><span class="confidence">{{ ((item.confidence or 0) * 100)|round(0)|int }}%</span></td></tr>{% endfor %}</tbody></table></div>{% endif %}
+      {% if selected.missing_information %}<div class="notice notice-warning"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>需要面试确认：{{ selected.missing_information|join('；') }}</div>{% endif %}
+      <div class="decision-bar"><p>AI 仅提供辅助意见，最终决定由面试官作出。</p><div class="button-row">
+        <form method="post" action="/api/applications/{{ selected.id }}/evaluate"><button class="button" type="submit">运行/重新评估</button></form>
+        {% if selected.status == 'evaluation_review' %}<form method="post" action="/api/applications/{{ selected.id }}/decision"><input type="hidden" name="status" value="on_hold"><input type="hidden" name="reason" value="HR 暂缓"><button class="button" type="submit">暂缓</button></form><form method="post" action="/api/applications/{{ selected.id }}/decision"><input type="hidden" name="status" value="rejected"><input type="hidden" name="reason" value="HR 人工淘汰"><button class="button button-danger" type="submit" data-confirm="确认淘汰该候选人？">淘汰</button></form><form method="post" action="/api/applications/{{ selected.id }}/decision"><input type="hidden" name="status" value="interview_pending"><input type="hidden" name="reason" value="HR 审核通过"><button class="button button-primary" type="submit">进入面试</button></form>{% endif %}
+      </div></div>
+    </div>
+    {% else %}<div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#spark"/></svg><h3>暂无可审核记录</h3><p>采集候选人并运行 AI 评估后，记录会进入审核队列。</p></div>{% endif %}
+  </section>
+</div>
+{% endblock %}

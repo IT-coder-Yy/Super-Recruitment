@@ -1,0 +1,30 @@
+# === 环境与密钥 ===
+.env
+
+# === 方案与设计文档 ===
+AI招聘自动化落地方案.md
+DESIGN.md
+PRODUCT.md
+
+# === 设计与Agent配置 ===
+.impeccable/
+.agents/
+
+# === Python 缓存 ===
+.pytest_cache/
+__pycache__/
+*.py[cod]
+
+# === 数据文件 ===
+data/*.db
+data/*.sqlite*
+data/exports/
+data/uploads/
+
+# === 测试覆盖率 ===
+.coverage
+htmlcov/
+
+# === IDE ===
+.vscode/
+.idea/

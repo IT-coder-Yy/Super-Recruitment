@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title %}数据采集{% endblock %}
+{% block page_title %}数据采集{% endblock %}
+{% block page_subtitle %}上传简历后先解析预览，人工确认后才写入候选人库{% endblock %}
+{% block content %}
+<nav class="stepper" aria-label="采集步骤">
+  <div class="step is-complete"><span class="step-number">1</span><span>上传/采集</span></div>
+  <div class="step is-active"><span class="step-number">2</span><span>提取与解析</span></div>
+  <div class="step"><span class="step-number">3</span><span>预览和查重</span></div>
+  <div class="step"><span class="step-number">4</span><span>确认入库</span></div>
+</nav>
+
+<section class="grid-2">
+  <div class="stack">
+    <article class="work-surface">
+      <header class="surface-header">
+        <div>
+          <h2 class="surface-title">本地上传简历</h2>
+          <p class="card-subtitle">支持 txt、md、pdf、docx。扫描版 PDF 的 OCR 暂标注为待接入。</p>
+        </div>
+      </header>
+      <div class="surface-body">
+        <form id="resumeUploadForm" class="stack-sm" enctype="multipart/form-data">
+          <div class="form-grid">
+            <div class="field">
+              <label for="jobTitle">来源岗位</label>
+              <input class="input" id="jobTitle" name="job_title" placeholder="例如：AI 应用开发实习生">
+            </div>
+            <div class="field">
+              <label for="owner">负责人</label>
+              <input class="input" id="owner" name="owner" value="HR">
+            </div>
+          </div>
+          <div class="field">
+            <label for="jdText">岗位 JD（可选）</label>
+            <textarea class="textarea" id="jdText" name="jd_text" placeholder="粘贴 JD 后，解析结果会同步识别岗位要求和技能匹配。"></textarea>
+          </div>
+          <div class="upload-zone" data-file-zone="#fileList">
+            <input id="resumeFiles" name="files" type="file" multiple accept=".txt,.md,.pdf,.docx" aria-label="选择简历文件">
+            <div>
+              <span class="upload-icon"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#upload"/></svg></span>
+              <h3>选择或拖放简历文件</h3>
+              <p>上传只创建导入任务，不会直接写入候选人库。点击“开始解析”后才进入文本提取和字段识别。</p>
+            </div>
+          </div>
+          <div class="file-list" id="fileList" aria-live="polite"></div>
+          <div class="form-actions">
+            <button class="button button-primary" type="submit">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#upload"/></svg>上传并创建导入任务
+            </button>
+          </div>
+        </form>
+      </div>
+    </article>
+
+    <article class="work-surface">
+      <header class="surface-header">
+        <div>
+          <h2 class="surface-title">导入任务队列</h2>
+          <p class="card-subtitle">每个任务都需要解析预览和人工确认，才会入库。</p>
+        </div>
+        <button class="button button-sm" id="refreshImportTasks" type="button">刷新</button>
+      </header>
+      <div class="surface-body">
+        {% if import_tasks %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>任务</th>
+                <th>候选人</th>
+                <th>状态</th>
+                <th>查重</th>
+                <th class="action-cell">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for task in import_tasks %}
+              <tr>
+                <td>
+                  <strong>#{{ task.id }}</strong>
+                  <small class="muted">{{ task.files|length }} 个文件 · {{ task.job_title }}</small>
+                </td>
+                <td>{{ task.candidate_name }}</td>
+                <td><span class="status {% if task.status == 'failed' %}status-danger{% elif task.status == 'needs_review' %}status-warning{% elif task.status == 'confirmed' %}status-success{% else %}status-primary{% endif %}">{{ task.status_label }}</span></td>
+                <td>{{ task.duplicate.label }}</td>
+                <td class="action-cell">
+                  <div class="button-row">
+                    {% if task.status in ['uploaded','failed','needs_review'] %}
+                    <button class="button button-sm" type="button" data-import-action="parse" data-task-id="{{ task.id }}">开始解析</button>
+                    {% endif %}
+                    <button class="button button-sm" type="button" data-import-action="view" data-task-id="{{ task.id }}">查看预览</button>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#database"/></svg>
+          <h3>暂无本地导入任务</h3>
+          <p>上传简历后会先生成任务队列，解析和确认都在这里完成。</p>
+        </div>
+        {% endif %}
+      </div>
+    </article>
+  </div>
+
+  <aside class="work-surface context-panel">
+    <header class="surface-header">
+      <div>
+        <h2 class="surface-title">解析预览</h2>
+        <p class="card-subtitle">默认展示 HR 可读信息，JSON 放在技术详情。</p>
+      </div>
+    </header>
+    <div class="surface-body">
+      <div id="importPreview" class="stack-sm" aria-live="polite">
+        <div class="empty-state">
+          <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>
+          <h3>选择一个任务查看解析结果</h3>
+          <p>解析后会展示摘要、技能、经历、缺失字段、查重结果和可确认入库操作。</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+</section>
+
+<section class="work-surface import-section">
+  <header class="surface-header">
+    <div>
+      <h2 class="surface-title">模拟招聘平台采集</h2>
+      <p class="card-subtitle">用于演示从平台采集简历、聊天和 JD 的完整数据闭环。</p>
+    </div>
+    <a class="button button-sm" href="/mock-platform">预览模拟平台</a>
+  </header>
+  <div class="surface-body">
+    <button class="button" id="mockImportButton" type="button">
+      <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#database"/></svg>采集模拟招聘数据
+    </button>
+    <pre id="mockImportResult" class="notice mock-result" hidden aria-live="polite"></pre>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const uploadForm = document.getElementById("resumeUploadForm");
+  const preview = document.getElementById("importPreview");
+  const escapeHtml = (value) => String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
+  const statusClass = (status) => {
+    if (status === "failed") return "status-danger";
+    if (status === "needs_review") return "status-warning";
+    if (status === "confirmed") return "status-success";
+    return "status-primary";
+  };
+
+  const listItems = (items, emptyText) => {
+    if (!items || !items.length) return `<p class="muted">${escapeHtml(emptyText)}</p>`;
+    return `<ul class="summary-list">${items.map((item) => `<li>${escapeHtml(typeof item === "string" ? item : item.description || item.title || item.evidence)}</li>`).join("")}</ul>`;
+  };
+
+  const renderPreview = (task) => {
+    const summary = task.summary?.human_summary || task.preview?.human_summary || {};
+    const duplicate = task.duplicate || {};
+    const missing = task.missing_fields || task.summary?.missing_fields || [];
+    const warnings = task.warnings || task.summary?.warnings || [];
+    const confidence = task.confidence ?? task.summary?.confidence;
+    const technicalJson = task.preview ? JSON.stringify(task.preview, null, 2) : "尚未生成结构化 JSON";
+    preview.innerHTML = `
+      <div class="key-status">
+        <div>
+          <strong>任务 #${task.id} · ${escapeHtml(task.status_label)}</strong>
+          <small>${escapeHtml(task.job_title)} · ${escapeHtml(task.files.length)} 个文件</small>
+        </div>
+        <span class="status ${statusClass(task.status)}">${escapeHtml(task.status_label)}</span>
+      </div>
+      <section class="stack-sm">
+        <h3 class="section-title">简历摘要</h3>
+        <p>${escapeHtml(summary.headline || "待解析")}</p>
+        <div class="tag-list">${(summary.skills || []).map((skill) => `<span class="tag tag-primary">${escapeHtml(skill)}</span>`).join("") || '<span class="tag">待识别技能</span>'}</div>
+      </section>
+      <section class="stack-sm">
+        <h3 class="section-title">经历与教育</h3>
+        ${listItems(summary.education, "未识别到教育信息")}
+        ${listItems([...(summary.projects || []), ...(summary.internships || []), ...(summary.work_experience || [])], "未识别到明确经历")}
+      </section>
+      <section class="stack-sm">
+        <h3 class="section-title">校验和查重</h3>
+        <div class="info-grid">
+          <div class="info-item"><span>字段置信度</span><strong>${confidence == null ? "待解析" : Math.round(confidence * 100) + "%"}</strong></div>
+          <div class="info-item"><span>查重结果</span><strong>${escapeHtml(duplicate.label || "待查重")}</strong></div>
+          <div class="info-item"><span>联系方式</span><strong>${escapeHtml(summary.contact?.phone || "待补充")}</strong></div>
+        </div>
+        ${missing.length ? `<div class="notice notice-warning"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>缺失字段：${missing.map(escapeHtml).join("；")}</div>` : ""}
+        ${warnings.length ? `<div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>${warnings.map(escapeHtml).join("；")}</div>` : ""}
+      </section>
+      <section class="button-row">
+        ${task.status === "needs_review" ? `
+          <button class="button button-primary" type="button" data-import-action="confirm" data-task-id="${task.id}">确认入库</button>
+          <button class="button" type="button" data-import-action="confirm-evaluate" data-task-id="${task.id}">入库并启动 AI 评估</button>
+        ` : ""}
+        ${task.status !== "confirmed" && task.status !== "rejected" ? `<button class="button button-danger" type="button" data-import-action="reject" data-task-id="${task.id}">废弃导入</button>` : ""}
+        ${task.confirmed_application_id ? `<a class="button" href="/candidates/${task.candidate_id || ""}">查看候选人</a>` : ""}
+      </section>
+      <details class="technical-details">
+        <summary>技术详情：标准 JSON、解析器输出和工具日志</summary>
+        <pre>${escapeHtml(technicalJson)}</pre>
+      </details>
+    `;
+  };
+
+  const fetchTask = async (taskId) => {
+    const response = await fetch(`/api/import/tasks/${taskId}`, { headers: { Accept: "application/json" } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "读取导入任务失败");
+    renderPreview(data);
+    return data;
+  };
+
+  uploadForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(uploadForm);
+    if (!formData.getAll("files").some((file) => file && file.size > 0)) {
+      window.AdminUI?.showToast("请选择文件", "支持 txt、md、pdf、docx。", "error");
+      return;
+    }
+    const submit = uploadForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      const response = await fetch("/api/import/files", { method: "POST", body: formData, headers: { Accept: "application/json" } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "上传失败");
+      window.AdminUI?.showToast("导入任务已创建", data.message, "success");
+      renderPreview(data.task);
+      window.location.reload();
+    } catch (error) {
+      window.AdminUI?.showToast("上传失败", error.message, "error");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-import-action]");
+    if (!button) return;
+    const taskId = button.dataset.taskId;
+    const action = button.dataset.importAction;
+    button.disabled = true;
+    try {
+      if (action === "view") {
+        await fetchTask(taskId);
+      } else if (action === "parse") {
+        const response = await fetch(`/api/import/tasks/${taskId}/parse`, { method: "POST", headers: { Accept: "application/json" } });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "解析失败");
+        window.AdminUI?.showToast(data.ok ? "解析完成" : "解析失败", data.message, data.ok ? "success" : "error");
+        renderPreview(data.task);
+      } else if (action === "confirm" || action === "confirm-evaluate") {
+        const body = new FormData();
+        body.set("start_evaluation", action === "confirm-evaluate" ? "true" : "false");
+        const response = await fetch(`/api/import/tasks/${taskId}/confirm`, { method: "POST", body, headers: { Accept: "application/json" } });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "入库失败");
+        window.AdminUI?.showToast("已入库", data.message, "success");
+        window.location.href = data.candidate_url;
+      } else if (action === "reject") {
+        if (!confirm("废弃后不会写入候选人库，是否继续？")) return;
+        const response = await fetch(`/api/import/tasks/${taskId}/reject`, { method: "POST", headers: { Accept: "application/json" } });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "废弃失败");
+        window.AdminUI?.showToast("已废弃", data.message, "success");
+        renderPreview(data.task);
+      }
+    } catch (error) {
+      window.AdminUI?.showToast("操作失败", error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById("refreshImportTasks")?.addEventListener("click", () => window.location.reload());
+
+  const mockButton = document.getElementById("mockImportButton");
+  const mockResult = document.getElementById("mockImportResult");
+  mockButton?.addEventListener("click", async () => {
+    mockButton.disabled = true;
+    try {
+      const response = await fetch("/api/import/mock", { method: "POST", headers: { Accept: "application/json" } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "采集失败");
+      mockResult.hidden = false;
+      mockResult.textContent = `采集完成：${data.candidate_count} 名候选人，${data.application_count} 条投递。`;
+      window.AdminUI?.showToast("采集完成", data.message, "success");
+    } catch (error) {
+      window.AdminUI?.showToast("采集失败", error.message, "error");
+    } finally {
+      mockButton.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}

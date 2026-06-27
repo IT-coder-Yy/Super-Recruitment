@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}候选人{% endblock %}
+{% block page_title %}候选人{% endblock %}
+{% block page_subtitle %}筛选、比较并进入完整招聘上下文{% endblock %}
+{% block topbar_actions %}<a class="button button-primary" href="/import"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#database"/></svg>采集数据</a>{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div class="search-field"><svg class="icon search-icon" aria-hidden="true"><use href="/static/icons.svg#search"/></svg><input class="input" placeholder="搜索候选人、岗位或负责人" data-filter-table="#candidateTable" aria-label="搜索候选人"></div>
+  <select class="select" data-table-select="#candidateTable" data-column="1" aria-label="岗位筛选"><option value="">全部岗位</option>{% for row in rows|unique(attribute='job_title') %}<option>{{ row.job_title }}</option>{% endfor %}</select>
+  <select class="select" data-table-select="#candidateTable" data-column="3" aria-label="状态筛选"><option value="">全部状态</option>{% for row in rows|unique(attribute='status_label') %}<option>{{ row.status_label }}</option>{% endfor %}</select>
+  <span class="toolbar-spacer"></span>
+  <a class="button" href="/api/exports/recruitment.xlsx"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#download"/></svg>XLSX</a>
+  <a class="button" href="/api/exports/recruitment.csv">CSV</a>
+</div>
+<article class="work-surface"><div class="table-wrap"><table class="data-table" id="candidateTable">
+  <thead><tr><th>候选人</th><th>岗位</th><th class="hide-mobile">渠道</th><th>状态</th><th>AI 评分</th><th class="hide-mobile">负责人</th><th class="hide-mobile">最近更新</th><th class="action-cell">操作</th></tr></thead>
+  <tbody>{% for row in rows %}<tr>
+    <td><a class="person-cell" href="/candidates/{{ row.candidate_id }}"><span class="person-avatar">{{ row.candidate_name[:1] }}</span><span><strong>{{ row.candidate_name }}</strong><small>{{ row.phone }}</small></span></a></td>
+    <td>{{ row.job_title }}</td><td class="hide-mobile">{{ row.channel }}</td><td><span class="status status-primary">{{ row.status_label }}</span></td>
+    <td>{% if row.score is not none %}<span class="score {% if row.score >= 80 %}score-high{% elif row.score >= 60 %}score-mid{% else %}score-low{% endif %}">{{ '%.1f'|format(row.score) }}</span>{% else %}<span class="muted">待评估</span>{% endif %}</td>
+    <td class="hide-mobile">{{ row.owner }}</td><td class="hide-mobile">{{ row.updated_at }}</td><td class="action-cell"><a class="button button-sm" href="/candidates/{{ row.candidate_id }}">查看详情</a></td>
+  </tr>{% else %}<tr><td colspan="8"><div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#users"/></svg><h3>没有符合条件的候选人</h3><p>清除筛选，或从模拟招聘平台采集第一条数据。</p><a class="button button-primary" href="/mock-platform">打开模拟平台</a></div></td></tr>{% endfor %}</tbody>
+</table></div></article>
+{% endblock %}

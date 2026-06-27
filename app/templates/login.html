@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta name="csrf-token" content="{{ csrf_token }}"><title>登录 · TalentFlow</title><link rel="stylesheet" href="/static/css/admin.css"></head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <section class="auth-intro" aria-label="TalentFlow 平台介绍">
+      <a class="auth-brand" href="/login"><span class="brand-mark" aria-hidden="true">T</span><span><strong>TalentFlow</strong><small>招聘运营控制台</small></span></a>
+      <div class="auth-intro-copy">
+        <h1>让招聘任务、证据和下一步始终清晰</h1>
+        <p>减少手工录入与跨工具切换，保留人工决策和完整审计。</p>
+        <ul class="auth-capabilities">
+          <li><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#database"/></svg><span><strong>自动采集</strong><small>统一记录简历、聊天和岗位信息</small></span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#spark"/></svg><span><strong>辅助评估</strong><small>基于 JD 与简历证据提供建议</small></span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><span><strong>智能排期</strong><small>生成候选时段并跟踪确认状态</small></span></li>
+        </ul>
+      </div>
+    </section>
+    <section class="auth-panel">
+      <div class="auth-form-wrap">
+        <header class="auth-header"><h2>欢迎回来</h2><p>登录后继续处理招聘待办</p></header>
+        {% if registered %}<div class="auth-alert auth-alert-success" role="status" tabindex="-1">注册成功，请使用新账号登录。</div>{% endif %}
+        {% if error %}<div class="auth-alert auth-alert-error" role="alert" tabindex="-1" autofocus>{{ error }}</div>{% endif %}
+        <form class="auth-form" method="post" action="/login">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="field"><label for="username">用户名</label><input class="input auth-input" id="username" name="username" type="text" value="{{ username|default('', true) }}" autocomplete="username" minlength="3" required autofocus placeholder="请输入用户名"></div>
+          <div class="field"><label for="password">密码</label><input class="input auth-input" id="password" name="password" type="password" autocomplete="current-password" minlength="6" required placeholder="请输入密码"></div>
+          <button class="button button-primary auth-submit" type="submit">登录</button>
+        </form>
+        <p class="auth-switch">还没有账号？<a href="/register">创建 Demo 账号</a></p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

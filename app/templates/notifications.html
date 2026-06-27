@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}通知与同步{% endblock %}
+{% block page_title %}通知与同步{% endblock %}
+{% block page_subtitle %}企业微信 / Mock 通知、邮件发送和腾讯文档导出状态{% endblock %}
+{% block topbar_actions %}<form method="post" action="/api/sync/tencent-docs"><button class="button button-primary" type="submit">同步腾讯文档 Mock</button></form>{% endblock %}
+{% block content %}
+<section class="grid-2">
+  <article class="work-surface">
+    <header class="surface-header"><div><h2 class="surface-title">通知记录</h2><p class="card-subtitle">未配置外部凭证时写入 Mock 记录，便于验收。</p></div></header>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>渠道</th><th>对象</th><th>主题</th><th>状态</th><th>时间</th></tr></thead><tbody>
+      {% for item in notifications %}
+      <tr><td>{{ item.channel }}</td><td>{{ item.recipient or '内部' }}</td><td>{{ item.subject or item.template }}</td><td><span class="status {% if item.status.value == 'failed' %}status-danger{% elif item.status.value == 'sent' %}status-success{% else %}status-warning{% endif %}">{{ item.status.value }}</span></td><td>{{ item.created_at }}</td></tr>
+      {% else %}<tr><td colspan="5">暂无通知记录</td></tr>{% endfor %}
+    </tbody></table></div>
+  </article>
+  <article class="work-surface">
+    <header class="surface-header"><div><h2 class="surface-title">导出与腾讯文档</h2><p class="card-subtitle">SQLite 仍是事实源，在线表格只作为协作视图。</p></div></header>
+    <div class="surface-body stack-sm">
+      <div class="button-row"><a class="button" href="/api/exports/recruitment.xlsx">下载 XLSX</a><a class="button" href="/api/exports/recruitment.csv">下载 CSV</a></div>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>类型</th><th>状态</th><th>行数</th><th>说明</th><th>时间</th></tr></thead><tbody>
+        {% for run in exports %}
+        <tr><td>{{ run.export_type }}</td><td><span class="status {% if run.status.value == 'success' %}status-success{% elif run.status.value == 'failed' %}status-danger{% else %}status-warning{% endif %}">{{ run.status.value }}</span></td><td>{{ run.row_count }}</td><td>{{ run.message or '—' }}</td><td>{{ run.created_at }}</td></tr>
+        {% else %}<tr><td colspan="5">暂无导出记录</td></tr>{% endfor %}
+      </tbody></table></div>
+    </div>
+  </article>
+</section>
+{% endblock %}

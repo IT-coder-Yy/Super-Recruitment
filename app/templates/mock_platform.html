@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}模拟招聘平台{% endblock %}
+{% block page_title %}模拟招聘平台{% endblock %}
+{% block page_subtitle %}演示从外部招聘页面采集候选人简历、初步聊天和岗位 JD{% endblock %}
+{% block content %}
+<div class="mock-disclaimer" role="note">
+  <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>
+  <div><strong>纯虚构演示页面。</strong>页面名称、候选人、聊天记录、联系方式和岗位内容均为测试数据，不代表、仿冒或关联任何真实招聘平台，也不使用任何真实平台商标。</div>
+</div>
+
+<section class="mock-platform-bar" aria-label="模拟平台操作区">
+  <div class="mock-platform-brand">
+    <span class="mock-platform-logo" aria-hidden="true">M</span>
+    <span><strong>MockHire 人才市场</strong><small>虚构招聘平台 · 演示数据源</small></span>
+  </div>
+  <button class="button button-primary" id="captureButton" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#database"/></svg>一键采集到 TalentFlow</button>
+</section>
+
+<div class="mock-layout">
+  <article class="card">
+    <header class="card-header">
+      <div class="mock-profile">
+        <span class="mock-avatar" aria-hidden="true">林</span>
+        <div>
+          <h2>林晓岚 <span class="status status-success">正在求职</span></h2>
+          <p>虚构大学 · 软件工程 · 2027 届 · 杭州</p>
+        </div>
+      </div>
+    </header>
+    <div class="card-body stack">
+      <div class="mock-tags" aria-label="候选人技能">
+        <span class="mock-tag">Python</span>
+        <span class="mock-tag">FastAPI</span>
+        <span class="mock-tag">SQLAlchemy</span>
+        <span class="mock-tag">大模型应用</span>
+      </div>
+      <section class="mock-section">
+        <h3>个人简介</h3>
+        <p>软件工程本科在读，关注 AI 应用后端开发。熟悉 Python Web API、关系型数据库和基础自动化测试，期望寻找 AI 应用开发实习岗位。</p>
+      </section>
+      <section class="mock-section">
+        <h3>项目经历 · 校园智能问答助手</h3>
+        <ul>
+          <li>使用 Python 与 FastAPI 搭建问答服务接口，完成会话管理和错误处理。</li>
+          <li>使用 SQLAlchemy 管理用户反馈数据，并编写基础接口测试。</li>
+          <li>接入虚构大模型服务，实现校园规章检索与答案生成演示。</li>
+        </ul>
+      </section>
+      <section class="mock-section">
+        <h3>联系方式（虚构测试数据）</h3>
+        <p>xiaolan.lin@example.test · +86 138-0000-1201</p>
+      </section>
+    </div>
+  </article>
+
+  <div class="stack">
+    <article class="card">
+      <header class="card-header"><div><h2 class="card-title">投递岗位 JD</h2><p class="card-subtitle">AI 应用开发实习生 · 智能产品部</p></div><span class="status status-primary">招聘中</span></header>
+      <div class="card-body stack-sm">
+        <section class="mock-section">
+          <h3>岗位职责</h3>
+          <ul>
+            <li>参与 Python 后端与 FastAPI 接口开发。</li>
+            <li>协助建设大模型应用及数据处理流程。</li>
+          </ul>
+        </section>
+        <section class="mock-section">
+          <h3>任职要求</h3>
+          <ul>
+            <li>掌握 Python、FastAPI，了解 SQLAlchemy。</li>
+            <li>有 AI 应用项目或自动化测试经验优先。</li>
+            <li>每周至少实习 4 天，连续 3 个月以上。</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="card">
+      <header class="card-header"><div><h2 class="card-title">初步沟通</h2><p class="card-subtitle">虚构 HR 与候选人的演示聊天</p></div></header>
+      <div class="card-body mock-chat">
+        <div class="mock-message"><small>虚构 HR · 林老师</small>你好，看到你投递了 AI 应用开发实习生。每周可以到岗几天？</div>
+        <div class="mock-message is-candidate"><small>林晓岚</small>老师好，每周可以实习四天，最快下周一到岗。</div>
+        <div class="mock-message"><small>虚构 HR · 林老师</small>项目中使用过 FastAPI 和数据库 ORM 吗？</div>
+        <div class="mock-message is-candidate"><small>林晓岚</small>使用 FastAPI 做过问答接口，也用 SQLAlchemy 保存用户反馈，并写过基础接口测试。</div>
+      </div>
+      <footer class="card-footer">
+        <span class="muted">采集将同步当前虚构简历、聊天与岗位 JD。</span>
+        <pre id="captureResult" class="notice mock-result" hidden></pre>
+      </footer>
+    </article>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const button = document.getElementById("captureButton");
+  const result = document.getElementById("captureResult");
+
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "采集中…";
+    try {
+      const response = await fetch("/api/import/mock", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "采集请求失败");
+      result.hidden = false;
+      result.textContent = `采集完成：${payload.candidate_count} 名候选人，${payload.application_count} 条投递。`;
+      window.AdminUI?.showToast("采集完成", payload.message, "success");
+    } catch (error) {
+      window.AdminUI?.showToast("采集失败", error.message, "error");
+    } finally {
+      button.disabled = false;
+      button.innerHTML = '<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#database"/></svg>一键采集到 TalentFlow';
+    }
+  });
+});
+</script>
+{% endblock %}

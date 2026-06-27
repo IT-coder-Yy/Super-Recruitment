@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>欢迎你加入 Testin</title>
+  <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body class="auth-page">
+  <main class="offer-letter">
+    <section class="offer-phone">
+      <header class="offer-header">
+        <div><strong>欢迎你加入 Testin！</strong><small>Testin</small></div>
+        <span>详情</span>
+      </header>
+      <div class="offer-banner">和优秀的人，做有挑战的事</div>
+      <div class="offer-code" aria-label="录用通知编号">TESTIN&nbsp;OFFER&nbsp;{{ offer.id }}</div>
+      <article class="offer-copy">
+        <p>{{ offer.content }}</p>
+      </article>
+      <dl class="offer-fields">
+        <dt>报到时间</dt><dd>{{ offer.report_time or 'Offer 接受后由 HR 确认' }}</dd>
+        <dt>报到地址</dt><dd>{{ offer.report_location or 'Testin 办公区 1 层前台' }}</dd>
+        <dt>办公地址</dt><dd>{{ offer.office_location or 'Testin 项目办公室' }}</dd>
+      </dl>
+      {% if offer.status.value == 'sent' %}
+      <form class="button-row offer-actions" method="post" action="/offer/{{ token }}/respond">
+        <button class="button button-primary" name="accepted" value="true" type="submit">接受</button>
+        <button class="button button-danger" name="accepted" value="false" type="submit">拒绝</button>
+      </form>
+      {% else %}
+      <div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>当前状态：{{ offer.status.value }}。如需调整请联系 HR。</div>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

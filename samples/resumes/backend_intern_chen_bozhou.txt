@@ -1,0 +1,16 @@
+姓名：陈泊舟
+手机号：13800130004
+邮箱：bozhou.chen@example.test
+应聘岗位：后端开发实习生
+教育背景：虚构科技大学 计算机科学 本科
+技能：Python、FastAPI、SQLAlchemy、pytest、REST API、SQLite
+项目经历：
+1. 招聘自动化 API 服务
+   - 使用 FastAPI 设计候选人、投递、评估和导出接口
+   - 使用 SQLAlchemy 建模招聘流程状态机
+   - 使用 pytest 覆盖导入、评估、排期和 Offer 主流程
+2. 本地任务跟进工具
+   - 实现超时任务扫描和邮件 Mock 通知
+   - 输出 CSV / XLSX 报表供腾讯文档协作
+到岗时间：一周内可到岗
+沟通摘要：每周可实习 5 天，偏好后端和 AI 应用方向。

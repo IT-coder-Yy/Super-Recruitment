@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}实时看板{% endblock %}
+{% block page_title %}实时看板{% endblock %}
+{% block page_subtitle %}招聘漏斗、Offer 转化、入职率与岗位进度{% endblock %}
+{% block topbar_actions %}<span class="status status-success" data-live-status>实时更新中</span>{% endblock %}
+{% block content %}
+<div data-dashboard data-endpoint="/api/dashboard/summary" data-interval="10000">
+  <div class="toolbar" aria-label="看板筛选">
+    <select class="select" aria-label="时间范围" disabled><option>时间范围：待接入</option></select>
+    <select class="select" aria-label="岗位" disabled><option>岗位筛选：待接入</option></select>
+    <select class="select" aria-label="渠道" disabled><option>渠道筛选：待接入</option></select>
+    <span class="toolbar-spacer"></span><span class="muted">最后更新：<span data-updated-at>刚刚</span></span>
+  </div>
+  <section class="metrics-grid" aria-label="招聘核心指标">
+    {% for label,key,help in [('候选人','total_candidates','当前候选人主记录'),('投递','applications','全部岗位投递'),('进入面试','interviews','已进入面试流程'),('待办/异常','overdue','未完成跟进任务')] %}
+    <article class="metric-card"><div class="metric-top"><span class="metric-label">{{ label }}</span><span class="metric-state {% if key == 'overdue' and summary[key] %}is-danger{% endif %}">{{ help }}</span></div><div class="metric-value {% if key == 'overdue' and summary[key] %}text-danger{% endif %}" data-metric="{{ key }}">{{ summary[key] }}</div></article>
+    {% endfor %}
+  </section>
+  <section class="dashboard-grid">
+    <article class="work-surface"><header class="surface-header"><div><h2 class="surface-title">招聘漏斗</h2><p class="card-subtitle">每个阶段均显示精确人数</p></div></header><div class="surface-body">
+      <div class="funnel" role="img" aria-label="招聘漏斗：投递 {{ summary.funnel.applications }}，初筛 {{ summary.funnel.screened }}，面试 {{ summary.funnel.interviews }}，Offer {{ summary.funnel.offers }}，入职 {{ summary.funnel.onboarded }}">
+      {% for label,key in [('投递','applications'),('初筛','screened'),('面试','interviews'),('Offer','offers'),('入职','onboarded')] %}<div class="funnel-step"><div class="funnel-bar" data-funnel="{{ key }}" style="height:{{ 40 + summary.funnel[key] * 18 }}px"><span class="funnel-value" data-funnel-value>{{ summary.funnel[key] }}</span></div><span class="funnel-name">{{ label }}</span></div>{% endfor %}
+      </div>
+      <table class="data-table chart-table"><thead><tr><th>阶段</th><th>人数</th></tr></thead><tbody>{% for label,key in [('投递','applications'),('初筛','screened'),('面试','interviews'),('Offer','offers'),('入职','onboarded')] %}<tr><td>{{ label }}</td><td>{{ summary.funnel[key] }}</td></tr>{% endfor %}</tbody></table>
+    </div></article>
+    <article class="work-surface"><header class="surface-header"><div><h2 class="surface-title">渠道简历量</h2><p class="card-subtitle">按来源自动归集</p></div></header><div class="surface-body bar-chart">
+      {% set max_channel = summary.channels|map(attribute='count')|max|default(1, true) %}
+      {% for item in summary.channels %}<div class="bar-row"><span>{{ item.name }}</span><div class="bar-track" aria-hidden="true"><div class="bar-fill" style="width:{{ item.count * 100 / max_channel }}%"></div></div><span class="bar-value">{{ item.count }}</span></div>{% else %}<div class="empty-state"><h3>暂无渠道数据</h3></div>{% endfor %}
+      <div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>渠道仅按当前来源记录聚合，后续可接入时间范围和岗位筛选。</div>
+    </div></article>
+  </section>
+  <section class="metrics-grid" style="margin-top:16px" aria-label="Offer 与入职指标">
+    <article class="metric-card"><div class="metric-top"><span class="metric-label">Offer 数</span><span class="metric-state">已创建 Offer</span></div><div class="metric-value">{{ summary.total_offers }}</div></article>
+    <article class="metric-card"><div class="metric-top"><span class="metric-label">Offer 接受率</span><span class="metric-state">接受 / 已发送</span></div><div class="metric-value">{{ summary.offer_acceptance_rate }}%</div></article>
+    <article class="metric-card"><div class="metric-top"><span class="metric-label">入职率</span><span class="metric-state">到岗 / 接受 Offer</span></div><div class="metric-value">{{ summary.joined_rate }}%</div></article>
+    <article class="metric-card"><div class="metric-top"><span class="metric-label">待入职事项</span><span class="metric-state {% if summary.onboarding_open %}is-warning{% endif %}">Open tasks</span></div><div class="metric-value">{{ summary.onboarding_open }}</div></article>
+  </section>
+  <section class="work-surface" style="margin-top:16px"><header class="surface-header"><div><h2 class="surface-title">岗位招聘进度</h2><p class="card-subtitle">累计投递与后续效率指标</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>岗位</th><th>累计投递</th><th>平均处理时长</th><th>反馈及时率</th></tr></thead><tbody>{% for item in summary.jobs %}<tr><td>{{ item.name }}</td><td>{{ item.count }}</td><td><span class="status status-warning">待接入</span></td><td><span class="status status-warning">待接入</span></td></tr>{% else %}<tr><td colspan="4">暂无岗位数据</td></tr>{% endfor %}</tbody></table></div></section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/dashboard.js" defer></script>{% endblock %}

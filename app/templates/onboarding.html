@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}入职跟进{% endblock %}
+{% block page_title %}入职跟进{% endblock %}
+{% block page_subtitle %}Offer 接受后自动生成入职事项，最终到岗由 HR 确认{% endblock %}
+{% block content %}
+<section class="work-surface">
+  <header class="surface-header"><div><h2 class="surface-title">入职任务</h2><p class="card-subtitle">按状态和截止时间排序。</p></div></header>
+  <div class="surface-body task-list">
+    {% for task in tasks %}
+    <div class="task-item">
+      <span class="task-marker"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#checklist"/></svg></span>
+      <span class="task-copy"><strong>{{ task.title }}</strong><small>{{ task.offer.candidate_name }} · {{ task.offer.job_title }} · 截止 {{ task.due_at or '待确认' }}</small></span>
+      <span class="status {% if task.status.value == 'done' %}status-success{% else %}status-warning{% endif %}">{{ task.status.value }}</span>
+      {% if task.status.value == 'open' %}
+      <form method="post" action="/api/onboarding/{{ task.id }}/complete"><button class="button button-primary button-sm" type="submit">确认完成</button></form>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#checklist"/></svg><h3>暂无入职任务</h3><p>候选人接受 Offer 后会自动生成入职跟进事项。</p></div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

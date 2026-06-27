@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}面试排期{% endblock %}
+{% block page_title %}面试排期{% endblock %}
+{% block page_subtitle %}连续处理待排期队列并跟踪会议创建步骤{% endblock %}
+{% block content %}
+<div class="calendar-layout">
+  <aside class="work-surface"><header class="surface-header"><div><h2 class="surface-title">待排期队列</h2><p class="card-subtitle">按轮次和创建时间排序</p></div></header><div class="surface-body task-list">
+    {% for interview in interviews %}<a class="task-item" href="#interview-{{ interview.id }}"><span class="task-marker"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg></span><span class="task-copy"><strong>{{ interview.application.candidate.name }} · {{ interview.application.job.title }}</strong><small>第 {{ interview.round }} 轮 · {{ interview.status.value }}</small></span><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a>{% else %}<div class="empty-state"><h3>暂无待排期记录</h3><p>在 AI 评估审核页人工选择“进入面试”后生成。</p></div>{% endfor %}
+  </div></aside>
+  <section class="work-surface"><header class="surface-header"><div><h2 class="surface-title">面试安排与反馈</h2><p class="card-subtitle">面试结束后提交反馈，进入下一轮、淘汰或发 Offer</p></div></header><div class="surface-body calendar-list">
+    {% for interview in interviews %}
+    <article class="calendar-row" id="interview-{{ interview.id }}">
+      <div><strong>{{ interview.application.candidate.name }}</strong><small class="muted">第 {{ interview.round }} 轮</small></div>
+      <div><strong>{{ interview.application.job.title }}</strong><small class="muted">候选时段 {{ interview.slots|length }} 个 · {{ interview.confirmed_start_at or '待候选人确认' }}</small></div>
+      <span class="status {% if interview.status.value == 'confirmed' %}status-success{% else %}status-warning{% endif %}">{{ interview.status.value }}</span>
+    </article>
+    {% set booking_url = booking_urls.get(interview.id) %}
+    {% if booking_url %}
+    <div class="work-surface inline-form">
+      <div class="field">
+        <label for="booking-{{ interview.id }}">候选人预约链接</label>
+        <input class="input" id="booking-{{ interview.id }}" value="{{ booking_url }}" readonly>
+      </div>
+      <div class="button-row">
+        <button class="button button-sm" type="button" data-copy-value="{{ booking_url }}" data-copy-fallback="#booking-{{ interview.id }}">复制链接</button>
+        <a class="button button-sm" href="{{ booking_url }}" target="_blank" rel="noopener">打开预约页</a>
+        <form method="post" action="/api/interviews/{{ interview.id }}/send-invite"><button class="button button-primary button-sm" type="submit">发送预约邮件 / Mock</button></form>
+      </div>
+      <p class="card-subtitle">请将链接发送给候选人；候选人在公开页选择时间后，系统才会创建会议并开放反馈入口。</p>
+    </div>
+    {% elif interview.status.value not in ['confirmed', 'completed'] %}
+    <div class="work-surface inline-form"><p class="card-subtitle">请先在候选人详情中点击“生成面试时段”，生成后这里会固定展示候选人预约链接。</p></div>
+    {% endif %}
+    {% if interview.status.value in ['confirmed', 'completed'] %}
+    <form class="work-surface inline-form" method="post" action="/api/interviews/{{ interview.id }}/feedback">
+      <div class="form-grid">
+        <div class="field"><label>反馈结论</label><input class="input" name="result" value="{{ interview.feedback.result if interview.feedback else '通过' }}"></div>
+        <div class="field"><label>下一步</label><select class="select" name="next_action"><option value="offer">发 Offer</option><option value="next_round">进入下一轮</option><option value="reject">淘汰</option></select></div>
+      </div>
+      <div class="field"><label>面试反馈</label><textarea class="textarea" name="comment" placeholder="填写面试证据、风险和建议">{{ interview.feedback.comment if interview.feedback else '' }}</textarea></div>
+      <div class="form-actions"><button class="button button-primary" type="submit">提交反馈</button></div>
+    </form>
+    {% else %}
+    <div class="work-surface inline-form"><p class="card-subtitle">候选人确认面试时间后，才开放面试反馈与 Offer 决策入口。</p></div>
+    {% endif %}
+    {% else %}<div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><h3>还没有面试安排</h3></div>{% endfor %}
+  </div></section>
+</div>
+<section class="work-surface" style="margin-top:16px"><header class="surface-header"><div><h2 class="surface-title">会议创建状态</h2><p class="card-subtitle">失败时保留已完成步骤，并提供人工处理入口</p></div></header><div class="surface-body schedule-steps"><div class="schedule-step is-complete"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#check"/></svg><span>锁定内部时段</span><span class="toolbar-spacer"></span><span class="status status-success">已实现</span></div><div class="schedule-step is-complete"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#check"/></svg><span>创建 Mock 腾讯会议</span><span class="toolbar-spacer"></span><span class="status status-success">已实现</span></div><div class="schedule-step is-pending"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#clock"/></svg><span>同步企业日历</span><span class="toolbar-spacer"></span><span class="status status-warning">待接入</span></div><div class="schedule-step is-pending"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#clock"/></svg><span>发送邮件 / 企业微信通知</span><span class="toolbar-spacer"></span><span class="status status-warning">待接入</span></div></div></section>
+{% endblock %}

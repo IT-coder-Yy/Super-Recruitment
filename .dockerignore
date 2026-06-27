@@ -1,0 +1,10 @@
+.git
+.agents
+.codex
+.env
+.pytest_cache
+__pycache__
+*.py[cod]
+data
+.coverage
+htmlcov

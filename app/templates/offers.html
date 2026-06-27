@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Offer{% endblock %}
+{% block page_title %}Offer{% endblock %}
+{% block page_subtitle %}单级审批、草稿摘要、邮件发放、候选人确认和状态同步{% endblock %}
+{% block content %}
+<div class="offer-layout">
+  <section class="work-surface">
+    <header class="surface-header">
+      <div><h2 class="surface-title">Offer 队列</h2><p class="card-subtitle">模板公司统一为 Testin，候选人与岗位来自投递记录。</p></div>
+    </header>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>候选人</th><th>岗位</th><th>邮箱</th><th>状态</th><th>审批</th><th class="action-cell">操作</th></tr></thead>
+        <tbody>
+          {% for offer in offers %}
+          <tr>
+            <td><a href="/offers?offer_id={{ offer.id }}">{{ offer.candidate_name }}</a></td>
+            <td>{{ offer.job_title }}</td>
+            <td>{{ offer.candidate_email or '邮箱缺失' }}</td>
+            <td><span class="status {% if offer.status.value in ['accepted','approved','sent'] %}status-success{% elif offer.status.value in ['declined','expired'] %}status-danger{% else %}status-warning{% endif %}">{{ offer.status.value }}</span></td>
+            <td>{% if offer.approvals %}{{ offer.approvals[0].status.value }}{% else %}待审批{% endif %}</td>
+            <td class="action-cell">
+              <div class="button-row">
+                <a class="button button-sm" href="/offers?offer_id={{ offer.id }}">查看</a>
+                {% if offer.status.value == 'pending_approval' %}
+                <form method="post" action="/api/offers/{{ offer.id }}/approve"><button class="button button-sm" type="submit">审批通过</button></form>
+                {% endif %}
+                {% if offer.status.value == 'approved' %}
+                <form method="post" action="/api/offers/{{ offer.id }}/send"><button class="button button-primary button-sm" type="submit">发到邮箱</button></form>
+                {% endif %}
+                {% if offer.candidate_token %}<a class="button button-sm" href="/offer/{{ offer.candidate_token }}">候选人链接</a>{% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6"><div class="empty-state"><h3>暂无 Offer</h3><p>在面试反馈中选择“发 Offer”后，会自动进入这里。</p></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside class="work-surface">
+    <header class="surface-header">
+      <div><h2 class="surface-title">Offer 详情</h2><p class="card-subtitle">敏感条款必须由 HR 填写，AI 只生成摘要和草稿。</p></div>
+    </header>
+    <div class="surface-body">
+      {% if selected_offer %}
+      <div class="tabs" data-tabs role="tablist" aria-label="Offer 详情">
+        <button class="tab-button is-active" type="button" data-tab="terms">条款</button>
+        <button class="tab-button" type="button" data-tab="draft">草稿</button>
+        <button class="tab-button" type="button" data-tab="delivery">发放</button>
+        <button class="tab-button" type="button" data-tab="audit">审计</button>
+      </div>
+
+      <section class="tab-panel is-active" data-tab-panel="terms">
+        <div class="info-grid offer-info-grid">
+          <div class="info-item"><span>候选人</span><strong>{{ selected_offer.candidate_name }}</strong></div>
+          <div class="info-item"><span>岗位</span><strong>{{ selected_offer.job_title }}</strong></div>
+          <div class="info-item"><span>入职主体</span><strong>{{ selected_offer.company_name }}</strong></div>
+          <div class="info-item"><span>工作地点</span><strong>{{ selected_offer.office_location or 'Testin 项目办公室' }}</strong></div>
+          <div class="info-item"><span>薪资/补贴</span><strong>待 HR 填写</strong></div>
+          <div class="info-item"><span>职级</span><strong>待 HR 填写</strong></div>
+          <div class="info-item"><span>预计入职日期</span><strong>待 HR 填写</strong></div>
+          <div class="info-item"><span>有效期</span><strong>{{ selected_offer.expires_at or '待确认' }}</strong></div>
+          <div class="info-item"><span>收件邮箱</span><strong>{{ selected_offer.candidate_email or '待补充' }}</strong></div>
+        </div>
+        <div class="notice notice-warning"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>缺失条款：{{ offer_detail.pending_terms|join('、') }}。这些字段不会由 AI 自动决定。</div>
+        <div class="button-row">
+          <form method="post" action="/api/offers/{{ selected_offer.id }}/generate-draft"><button class="button" type="submit">生成邮件草稿 / 审批摘要</button></form>
+          {% if selected_offer.status.value == 'pending_approval' %}<form method="post" action="/api/offers/{{ selected_offer.id }}/approve"><button class="button" type="submit">审批通过</button></form>{% endif %}
+          {% if selected_offer.status.value == 'approved' %}<form method="post" action="/api/offers/{{ selected_offer.id }}/send"><button class="button button-primary" type="submit">发送 Offer</button></form>{% endif %}
+        </div>
+      </section>
+
+      <section class="tab-panel" data-tab-panel="draft">
+        <div class="stack-sm">
+          <h3 class="section-title">审批摘要</h3>
+          <p>{{ offer_detail.approval_summary }}</p>
+          <h3 class="section-title">录用邮件草稿</h3>
+          <pre>{{ offer_detail.email_draft }}</pre>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-tab-panel="delivery">
+        <div class="stack-sm">
+          <h3 class="section-title">审批记录</h3>
+          <div class="activity-list">{% for approval in selected_offer.approvals %}<div class="activity-item"><span class="activity-dot"></span><span>{{ approval.approver or '管理员' }} · {{ approval.status.value }}{% if approval.decision_reason %}<br>{{ approval.decision_reason }}{% endif %}</span><time class="activity-time">{{ approval.decided_at or approval.created_at }}</time></div>{% else %}<p class="muted">暂无审批记录</p>{% endfor %}</div>
+          <h3 class="section-title">发放记录</h3>
+          <div class="activity-list">{% for item in offer_detail.notifications %}<div class="activity-item"><span class="activity-dot"></span><span>{{ item.channel }} · {{ item.status.value }}<br>{{ item.subject or item.content }}</span><time class="activity-time">{{ item.created_at }}</time></div>{% else %}<p class="muted">尚未发放</p>{% endfor %}</div>
+          <h3 class="section-title">候选人回复</h3>
+          <p>{{ selected_offer.status.value }}{% if selected_offer.response_note %} · {{ selected_offer.response_note }}{% endif %}</p>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-tab-panel="audit">
+        <div class="activity-list">{% for log in offer_detail.audits %}<div class="activity-item"><span class="activity-dot"></span><span>{{ log.actor }} · {{ log.action }}</span><time class="activity-time">{{ log.created_at }}</time></div>{% else %}<p class="muted">暂无审计记录</p>{% endfor %}</div>
+      </section>
+      {% else %}
+      <div class="empty-state"><h3>选择一个 Offer</h3><p>创建 Offer 后，这里会显示条款、审批、发放记录和候选人回复。</p></div>
+      {% endif %}
+    </div>
+  </aside>
+</div>
+{% endblock %}

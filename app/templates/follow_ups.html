@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}跟进中心{% endblock %}
+{% block page_title %}跟进中心{% endblock %}
+{% block page_subtitle %}按优先级处理超时、提醒和人工接管{% endblock %}
+{% block content %}
+<div class="toolbar"><select class="select" aria-label="状态筛选"><option>全部状态</option><option>待处理</option><option>已完成</option></select><select class="select" aria-label="负责人筛选" disabled><option>负责人筛选：待接入</option></select><span class="toolbar-spacer"></span><span class="muted">内部提醒可自动发送；候选人消息需人工确认</span></div>
+<section class="work-surface"><header class="surface-header"><div><h2 class="surface-title">优先级任务列表</h2><p class="card-subtitle">超时原因、对象、负责人和建议动作</p></div></header><div class="surface-body priority-list">
+  {% for task in tasks %}
+  <article class="priority-item">
+    <span class="task-marker" aria-hidden="true"><svg class="icon"><use href="/static/icons.svg#clock"/></svg></span>
+    <div class="task-copy"><strong>{{ task.reason or task.rule_code }}</strong><small>对象：{{ task.target_type }} #{{ task.target_id }} · 负责人：{{ task.owner or '未分配' }}</small><small>建议：{{ task.suggested_action or '请及时处理' }} · 截止：{{ task.due_at or '未设置' }}</small></div>
+    <span class="status {% if task.status.value == 'open' %}status-warning{% else %}status-success{% endif %}">{{ '待处理' if task.status.value == 'open' else '已完成' }}</span>
+    <div class="button-row">{% if task.status.value == 'open' %}<button class="button button-sm" type="button" disabled title="企业微信或邮件连接器待接入">立即提醒</button><button class="button button-sm" type="button" disabled>稍后提醒</button><button class="button button-sm" type="button" disabled>转交</button><form method="post" action="/api/follow-ups/{{ task.id }}/resolve"><button class="button button-primary button-sm" type="submit">完成</button></form>{% endif %}</div>
+  </article>
+  {% else %}<div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#check"/></svg><h3>当前没有跟进任务</h3><p>规则引擎发现超时状态后，会在这里创建且只创建一条有效任务。</p></div>{% endfor %}
+</div></section>
+{% endblock %}

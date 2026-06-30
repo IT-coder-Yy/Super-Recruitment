@@ -46,7 +46,7 @@ cd D:\vscode\project\Testin
 
 ### 🎬 演示视频
 
-> 📂 视频文件：[`demo/01_登录与工作台.webp`](demo/01_登录与工作台.webp)
+![登录与工作台](demo/01_登录与工作台.webp)
 
 ### 功能说明
 
@@ -75,7 +75,7 @@ cd D:\vscode\project\Testin
 
 ### 🎬 演示视频
 
-> 📂 视频文件：[`demo/02_数据采集与解析.webp`](demo/02_数据采集与解析.webp)
+![数据采集与解析](demo/02_数据采集与解析.webp)
 
 ### 功能说明
 
@@ -121,7 +121,7 @@ cd D:\vscode\project\Testin
 
 ### 🎬 演示视频
 
-> 📂 视频文件：[`demo/03_AI评估与排期.webp`](demo/03_AI评估与排期.webp)
+![AI评估与排期](demo/03_AI评估与排期.webp)
 
 ### 功能说明
 
@@ -157,7 +157,7 @@ cd D:\vscode\project\Testin
 
 ### 🎬 演示视频
 
-> 📂 视频文件：[`demo/04_面试反馈与Offer.webp`](demo/04_面试反馈与Offer.webp)
+![面试反馈与Offer](demo/04_面试反馈与Offer.webp)
 
 ### 功能说明
 
@@ -192,7 +192,7 @@ cd D:\vscode\project\Testin
 
 ### 🎬 演示视频
 
-> 📂 视频文件：[`demo/05_入职跟进与审计.webp`](demo/05_入职跟进与审计.webp)
+![入职跟进与审计](demo/05_入职跟进与审计.webp)
 
 ### 功能说明
 

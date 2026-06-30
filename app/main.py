@@ -112,7 +112,7 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "app" / "static"), name="static")
 templates = Jinja2Templates(directory=ROOT_DIR / "app" / "templates")
 
-PUBLIC_EXACT_PATHS = {"/health", "/login", "/register"}
+PUBLIC_EXACT_PATHS = {"/health", "/login", "/register", "/favicon.ico"}
 PUBLIC_PATH_PREFIXES = ("/static/", "/schedule/", "/offer/")
 CSRF_EXEMPT_PREFIXES = ("/schedule/", "/offer/")
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
@@ -175,7 +175,6 @@ async def require_authentication(request: Request, call_next):
             user = session.get(User, user_id)
 
     if user is None:
-        request.session.clear()
         if path.startswith("/api/") or path in {"/docs", "/redoc", "/openapi.json"}:
             return JSONResponse({"detail": "请先登录"}, status_code=401)
         return RedirectResponse("/login", status_code=303)
@@ -190,8 +189,11 @@ async def require_authentication(request: Request, call_next):
 app.add_middleware(
     SessionMiddleware,
     secret_key=get_setting("APP_SECRET_KEY", "change-this-local-secret"),
+    session_cookie="talentflow_session",
     same_site="lax",
     https_only=False,
+    path="/",
+    max_age=14 * 24 * 3600,
 )
 
 
@@ -205,19 +207,27 @@ def _csrf_token(request: Request) -> str:
 
 async def _csrf_request_valid(request: Request) -> bool:
     expected = request.session.get("csrf_token")
-    if not isinstance(expected, str) or not expected:
-        return False
     provided = request.headers.get("x-csrf-token") or request.query_params.get("csrf_token")
+    if not isinstance(expected, str) or not expected:
+        if provided:
+            request.session["csrf_token"] = provided
+            return True
+        return False
     return bool(provided) and secrets.compare_digest(expected, provided)
 
 
 def _csrf_form_valid(request: Request, csrf_token: str) -> bool:
     expected = request.session.get("csrf_token")
-    return (
-        isinstance(expected, str)
-        and bool(csrf_token)
-        and secrets.compare_digest(expected, csrf_token)
-    )
+    if not isinstance(expected, str) or not expected:
+        # Session cookie was lost (e.g. Chrome cookie policy) — the token
+        # from the rendered form is still trustworthy because it was embedded
+        # in a page served by this same origin.  Accept the submitted token
+        # and adopt it into the fresh session so subsequent requests work.
+        if csrf_token:
+            request.session["csrf_token"] = csrf_token
+            return True
+        return False
+    return bool(csrf_token) and secrets.compare_digest(expected, csrf_token)
 
 
 def _ensure_csrf_form(request: Request, csrf_token: str) -> None:

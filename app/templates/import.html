@@ -235,7 +235,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const submit = uploadForm.querySelector('button[type="submit"]');
     submit.disabled = true;
     try {
-      const response = await fetch("/api/import/files", { method: "POST", body: formData, headers: { Accept: "application/json" } });
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+      const response = await fetch("/api/import/files", { method: "POST", body: formData, headers: { Accept: "application/json", "X-CSRF-Token": csrfToken } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "上传失败");
       window.AdminUI?.showToast("导入任务已创建", data.message, "success");
@@ -258,7 +259,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (action === "view") {
         await fetchTask(taskId);
       } else if (action === "parse") {
-        const response = await fetch(`/api/import/tasks/${taskId}/parse`, { method: "POST", headers: { Accept: "application/json" } });
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+        const response = await fetch(`/api/import/tasks/${taskId}/parse`, { method: "POST", headers: { Accept: "application/json", "X-CSRF-Token": csrfToken } });
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || "解析失败");
         window.AdminUI?.showToast(data.ok ? "解析完成" : "解析失败", data.message, data.ok ? "success" : "error");
@@ -266,14 +268,16 @@ document.addEventListener("DOMContentLoaded", () => {
       } else if (action === "confirm" || action === "confirm-evaluate") {
         const body = new FormData();
         body.set("start_evaluation", action === "confirm-evaluate" ? "true" : "false");
-        const response = await fetch(`/api/import/tasks/${taskId}/confirm`, { method: "POST", body, headers: { Accept: "application/json" } });
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+        const response = await fetch(`/api/import/tasks/${taskId}/confirm`, { method: "POST", body, headers: { Accept: "application/json", "X-CSRF-Token": csrfToken } });
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || "入库失败");
         window.AdminUI?.showToast("已入库", data.message, "success");
         window.location.href = data.candidate_url;
       } else if (action === "reject") {
         if (!confirm("废弃后不会写入候选人库，是否继续？")) return;
-        const response = await fetch(`/api/import/tasks/${taskId}/reject`, { method: "POST", headers: { Accept: "application/json" } });
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+        const response = await fetch(`/api/import/tasks/${taskId}/reject`, { method: "POST", headers: { Accept: "application/json", "X-CSRF-Token": csrfToken } });
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || "废弃失败");
         window.AdminUI?.showToast("已废弃", data.message, "success");
@@ -293,7 +297,8 @@ document.addEventListener("DOMContentLoaded", () => {
   mockButton?.addEventListener("click", async () => {
     mockButton.disabled = true;
     try {
-      const response = await fetch("/api/import/mock", { method: "POST", headers: { Accept: "application/json" } });
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+      const response = await fetch("/api/import/mock", { method: "POST", headers: { Accept: "application/json", "X-CSRF-Token": csrfToken } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "采集失败");
       mockResult.hidden = false;

@@ -101,7 +101,11 @@ document.addEventListener("DOMContentLoaded", () => {
     button.disabled = true;
     button.textContent = "采集中…";
     try {
-      const response = await fetch("/api/import/mock", { method: "POST" });
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+      const response = await fetch("/api/import/mock", { 
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken }
+      });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || "采集请求失败");
       result.hidden = false;

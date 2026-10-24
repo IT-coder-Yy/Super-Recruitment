@@ -1,37 +1,30 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>欢迎你加入 Testin</title>
-  <link rel="stylesheet" href="/static/css/admin.css">
-</head>
-<body class="auth-page">
-  <main class="offer-letter">
-    <section class="offer-phone">
-      <header class="offer-header">
-        <div><strong>欢迎你加入 Testin！</strong><small>Testin</small></div>
-        <span>详情</span>
-      </header>
-      <div class="offer-banner">和优秀的人，做有挑战的事</div>
-      <div class="offer-code" aria-label="录用通知编号">TESTIN&nbsp;OFFER&nbsp;{{ offer.id }}</div>
-      <article class="offer-copy">
-        <p>{{ offer.content }}</p>
-      </article>
-      <dl class="offer-fields">
+{% extends "public_base.html" %}
+{% block title %}欢迎你加入 Testin · TalentFlow{% endblock %}
+{% block content %}
+<main id="main-content" class="public-content">
+  <article class="public-document public-offer">
+    <header class="public-document-header"><h1>欢迎你加入 Testin！</h1><p>{{ offer.job_title }}<span class="public-separator" aria-hidden="true"> / </span>{{ offer.candidate_name }}</p></header>
+    <div class="public-document-body">
+      <div class="public-offer-meta"><span>录用通知</span><span>编号 {{ offer.id }}</span></div>
+      <div class="public-offer-copy">{{ offer.content }}</div>
+      <dl class="public-offer-fields">
         <dt>报到时间</dt><dd>{{ offer.report_time or 'Offer 接受后由 HR 确认' }}</dd>
         <dt>报到地址</dt><dd>{{ offer.report_location or 'Testin 办公区 1 层前台' }}</dd>
         <dt>办公地址</dt><dd>{{ offer.office_location or 'Testin 项目办公室' }}</dd>
       </dl>
       {% if offer.status.value == 'sent' %}
-      <form class="button-row offer-actions" method="post" action="/offer/{{ token }}/respond">
-        <button class="button button-primary" name="accepted" value="true" type="submit">接受</button>
-        <button class="button button-danger" name="accepted" value="false" type="submit">拒绝</button>
-      </form>
+      <section class="public-offer-response" aria-labelledby="offer-response-title">
+        <h2 id="offer-response-title">确认你的答复</h2><p>请仔细阅读录用内容。提交后如需调整，请联系 HR。</p>
+        <form class="button-row" method="post" action="/offer/{{ token }}/respond" data-public-form>
+          <button class="button button-primary" name="accepted" value="true" type="submit" data-confirm="确认接受这份 Offer？你的答复将提交给招聘负责人。" data-pending-label="正在提交…">接受 Offer</button>
+          <button class="button" name="accepted" value="false" type="submit" data-confirm="确认拒绝这份 Offer？你的答复将提交给招聘负责人。" data-pending-label="正在提交…">拒绝 Offer</button>
+        </form>
+      </section>
       {% else %}
-      <div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>当前状态：{{ offer.status.value }}。如需调整请联系 HR。</div>
+      {% set offer_status_labels = {'draft': '草稿', 'pending_approval': '待审批', 'approved': '已审批', 'sent': '待答复', 'accepted': '已接受', 'declined': '已拒绝', 'expired': '已过期'} %}
+      <div class="notice" role="status"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg><div><strong>当前状态：{{ offer_status_labels.get(offer.status.value, offer.status.value) }}</strong><p>如需调整，请联系 HR。</p></div></div>
       {% endif %}
-    </section>
-  </main>
-</body>
-</html>
+    </div>
+  </article>
+</main>
+{% endblock %}

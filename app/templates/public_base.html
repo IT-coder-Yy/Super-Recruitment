@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  {% if csrf_token is defined %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
+  <title>{% block title %}TalentFlow{% endblock %}</title>
+  <script src="/static/js/theme.js"></script>
+  <link rel="stylesheet" href="/static/css/admin.css">
+  <link rel="stylesheet" href="/static/css/theme.css">
+  <link rel="stylesheet" href="/static/css/public.css">
+</head>
+<body class="public-page {% block page_class %}{% endblock %}">
+  <a class="skip-link" href="#main-content">跳转到主要内容</a>
+  <header class="public-topbar">
+    <a class="public-brand" href="/login" aria-label="TalentFlow 登录"><svg class="public-brand-mark icon" aria-hidden="true"><use href="/static/icons.svg#logo"/></svg><strong>TalentFlow</strong></a>
+    <details class="public-theme theme-menu">
+      <summary><svg class="icon" aria-hidden="true"><use data-theme-icon href="/static/icons.svg#monitor"/></svg><span>主题 · <span data-theme-label>跟随系统</span></span><svg class="icon public-chevron" aria-hidden="true" viewBox="0 0 20 20"><path d="m6 8 4 4 4-4"/></svg></summary>
+      <div class="public-theme-menu" role="group" aria-label="选择界面主题">
+        <button type="button" data-theme-choice="light">浅色</button>
+        <button type="button" data-theme-choice="dark">深色</button>
+        <button type="button" data-theme-choice="system">跟随系统</button>
+      </div>
+    </details>
+  </header>
+  {% block content %}{% endblock %}
+  <script>
+    (() => {
+      document.querySelectorAll('[data-toggle-password]').forEach(button => {
+        button.addEventListener('click', () => {
+          const input = document.getElementById(button.dataset.togglePassword);
+          const visible = input.type === 'password';
+          input.type = visible ? 'text' : 'password';
+          button.textContent = visible ? '隐藏' : '显示';
+          button.setAttribute('aria-label', visible ? '隐藏密码' : '显示密码');
+          button.setAttribute('aria-pressed', String(visible));
+        });
+      });
+      let submitting = false;
+      document.querySelectorAll('form[data-public-form]').forEach(form => {
+        form.addEventListener('submit', event => {
+          if (submitting) { event.preventDefault(); return; }
+          const button = event.submitter;
+          if (button?.dataset.confirm && !window.confirm(button.dataset.confirm)) { event.preventDefault(); return; }
+          submitting = true;
+          form.setAttribute('aria-busy', 'true');
+          if (button) {
+            button.dataset.originalLabel = button.textContent;
+            button.textContent = button.dataset.pendingLabel || '正在提交…';
+            button.setAttribute('aria-disabled', 'true');
+          }
+        });
+      });
+      window.addEventListener('pageshow', () => {
+        submitting = false;
+        document.querySelectorAll('form[aria-busy]').forEach(form => form.removeAttribute('aria-busy'));
+        document.querySelectorAll('[data-original-label]').forEach(button => {
+          button.textContent = button.dataset.originalLabel;
+          button.removeAttribute('aria-disabled');
+          delete button.dataset.originalLabel;
+        });
+      });
+      document.querySelector('[data-error-summary]')?.focus();
+    })();
+  </script>
+</body>
+</html>

@@ -1,9 +1,13 @@
-<!doctype html>
-<html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>预约成功 · TalentFlow</title><link rel="stylesheet" href="/static/css/admin.css"></head>
-<body>
-  <main class="booking-shell">
-    <article class="work-surface empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#check"/></svg><h1 class="surface-title">面试时间已确认</h1><p>系统已锁定时段并创建 Mock 腾讯会议，招聘负责人后台会实时更新。</p></article>
-  </main>
-</body>
-</html>
+{% extends "public_base.html" %}
+{% block title %}预约成功 · TalentFlow{% endblock %}
+{% block content %}
+<main id="main-content" class="public-content">
+  <article class="public-document public-success" aria-labelledby="booking-success-title">
+    <span class="public-success-mark"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#check"/></svg></span>
+    <h1 id="booking-success-title">面试时间已确认</h1>
+    <p>系统已锁定所选时段，招聘负责人可以查看你的预约结果。</p>
+    <div class="public-success-next"><h2>接下来</h2><p>当前会议为 Mock 演示安排。请与招聘负责人确认实际会议方式及面试准备事项；如需改期，请提前联系对方。</p></div>
+    <p class="public-footnote">预约已完成，你可以关闭此页面。</p>
+  </article>
+</main>
+{% endblock %}

@@ -1,16 +1,29 @@
-<!doctype html>
-<html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>选择面试时间 · TalentFlow</title><link rel="stylesheet" href="/static/css/admin.css"></head>
-<body>
-  <main class="booking-shell">
-    <article class="work-surface">
-      <header class="surface-header"><div><h1 class="surface-title">选择面试时间</h1><p class="card-subtitle">{% if application %}{{ application.job.title }} · {{ application.candidate.name }}{% endif %}</p></div></header>
-      <div class="surface-body stack">
-        {% if error %}<div class="notice notice-warning" role="alert"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>{{ error }}</div>
-        {% else %}<div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>请选择一个可用时段。确认后系统会锁定时间并创建 Mock 腾讯会议。</div>
-        {% for slot in slots %}<form method="post" action="/schedule/{{ token }}/confirm" class="key-status"><input type="hidden" name="slot_id" value="{{ slot.id }}"><div><strong>{{ slot.start_at }}</strong><small>预计结束：{{ slot.end_at }}</small></div><button class="button button-primary" type="submit">确认此时段</button></form>{% else %}<div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><h3>暂无可用时段</h3><p>请联系招聘负责人重新生成候选时间。</p></div>{% endfor %}{% endif %}
+{% extends "public_base.html" %}
+{% block title %}选择面试时间 · TalentFlow{% endblock %}
+{% block content %}
+<main id="main-content" class="public-content">
+  <article class="public-document">
+    <header class="public-document-header"><h1>选择面试时间</h1>{% if application %}<p>{{ application.job.title }}<span class="public-separator" aria-hidden="true"> / </span>{{ application.candidate.name }}</p>{% endif %}</header>
+    <div class="public-document-body">
+      {% if error %}
+      <div class="notice notice-warning" role="alert" tabindex="-1" data-error-summary><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg><div><strong>暂时无法预约</strong><p>{{ error }}</p><p>请联系招聘负责人获取新的预约链接。</p></div></div>
+      {% else %}
+      <p class="public-lead">以下均为北京时间（UTC+8）。请选择一个可用时段；确认后时段将被锁定，如需改期请联系招聘负责人。</p>
+      <div class="public-slots">
+        {% for slot in slots %}
+        {% set start = slot.start_at|appointment_time %}{% set end = slot.end_at|appointment_time %}
+        <form method="post" action="/schedule/{{ token }}/confirm" class="public-slot" data-public-form>
+          <input type="hidden" name="slot_id" value="{{ slot.id }}">
+          <div><strong><time datetime="{{ start.isoformat() }}">{{ start.strftime('%Y年%m月%d日') }}</time></strong><span>{{ start.strftime('%H:%M') }} – {% if end.date() != start.date() %}{{ end.strftime('%m月%d日 ') }}{% endif %}{{ end.strftime('%H:%M') }}</span></div>
+          <button class="button button-primary" type="submit" data-pending-label="正在确认…" aria-label="确认 {{ start.strftime('%m月%d日 %H:%M') }} 的面试时段">确认此时段</button>
+        </form>
+        {% else %}
+        <div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><h2>暂无可用时段</h2><p>请联系招聘负责人重新生成候选时间。</p></div>
+        {% endfor %}
       </div>
-    </article>
-  </main>
-</body>
-</html>
+      <p class="public-footnote">会议方式与参与信息，请以招聘负责人后续通知为准。</p>
+      {% endif %}
+    </div>
+  </article>
+</main>
+{% endblock %}

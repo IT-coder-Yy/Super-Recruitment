@@ -2,20 +2,36 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
-from dotenv import set_key
 from fastapi.testclient import TestClient
 
 
 os.environ.setdefault("LLM_PROVIDER", "mock")
-os.environ.setdefault("DATABASE_URL", "sqlite:///./data/test_recruitment.db")
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 from app import config as app_config  # noqa: E402
 from app import db as app_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services import imports as import_service  # noqa: E402
+
+
+@pytest.fixture(scope="module", autouse=True)
+def isolated_settings(tmp_path_factory):
+    """设置与上传回归只操作临时目录，不覆盖开发者的配置。"""
+    directory = tmp_path_factory.mktemp("talentflow-app")
+    with pytest.MonkeyPatch.context() as patch:
+        env_file = directory / ".env"
+        env_file.write_text("LLM_PROVIDER=mock\nLLM_API_KEY=\nSMTP_HOST=\nWECOM_WEBHOOK_URL=\n", encoding="utf-8")
+        patch.setattr(app_config, "ENV_FILE", env_file)
+        patch.setattr(app_config, "DATA_DIR", directory)
+        patch.setattr(app_config, "EXPORT_DIR", directory / "exports")
+        patch.setattr(app_config, "UPLOAD_DIR", directory / "uploads")
+        patch.setattr(import_service, "UPLOAD_DIR", directory / "uploads")
+        for key, value in {"LLM_PROVIDER": "mock", "LLM_API_KEY": "", "LLM_BASE_URL": "", "LLM_MODEL": "", "SMTP_HOST": "", "WECOM_WEBHOOK_URL": ""}.items():
+            patch.setenv(key, value)
+        yield
 
 
 def _csrf_token(client: TestClient, path: str = "/login") -> str:
@@ -580,8 +596,4 @@ def test_settings_never_echoes_plain_api_key(
 
 
 def teardown_module() -> None:
-    set_key(str(app_config.ENV_FILE), "LLM_API_KEY", "")
     app_db.engine.dispose()
-    test_db = Path("data/test_recruitment.db")
-    if test_db.exists():
-        test_db.unlink()

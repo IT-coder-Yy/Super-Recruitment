@@ -4,17 +4,18 @@
 {% block page_subtitle %}企业微信 / Mock 通知、邮件发送和腾讯文档导出状态{% endblock %}
 {% block topbar_actions %}<form method="post" action="/api/sync/tencent-docs"><button class="button button-primary" type="submit">同步腾讯文档 Mock</button></form>{% endblock %}
 {% block content %}
-<section class="grid-2">
+<section class="workflow-page workflow-notifications">
   <article class="work-surface">
-    <header class="surface-header"><div><h2 class="surface-title">通知记录</h2><p class="card-subtitle">未配置外部凭证时写入 Mock 记录，便于验收。</p></div></header>
-    <div class="table-wrap"><table class="data-table"><thead><tr><th>渠道</th><th>对象</th><th>主题</th><th>状态</th><th>时间</th></tr></thead><tbody>
+    <header class="surface-header"><div><h2 class="surface-title">通知记录 <span class="count-badge">{{ notifications|length }}</span></h2><p class="card-subtitle">查看发送结果；模拟发送会明确标记为 Mock。</p></div><a class="button button-sm" href="/settings#mail">通知设置</a></header>
+    <div class="toolbar workflow-toolbar"><div class="search-field"><svg class="icon search-icon" aria-hidden="true"><use href="/static/icons.svg#search"/></svg><input class="input" aria-label="搜索通知" placeholder="搜索对象或主题" data-filter-table="#notificationTable"></div><select class="select" data-table-select="#notificationTable" data-column="3" aria-label="通知状态"><option value="">全部状态</option><option>已发送</option><option>发送失败</option><option>模拟发送</option></select></div>
+    <div class="table-wrap"><table class="data-table" id="notificationTable"><thead><tr><th>渠道</th><th>对象</th><th>主题</th><th>状态</th><th>时间</th></tr></thead><tbody>
       {% for item in notifications %}
-      <tr><td>{{ item.channel }}</td><td>{{ item.recipient or '内部' }}</td><td>{{ item.subject or item.template }}</td><td><span class="status {% if item.status.value == 'failed' %}status-danger{% elif item.status.value == 'sent' %}status-success{% else %}status-warning{% endif %}">{{ item.status.value }}</span></td><td>{{ item.created_at }}</td></tr>
-      {% else %}<tr><td colspan="5">暂无通知记录</td></tr>{% endfor %}
+      <tr><td>{{ item.channel }}</td><td>{{ item.recipient or '内部' }}</td><td>{{ item.subject or item.template }}</td><td><span class="status {% if item.status.value == 'failed' %}status-danger{% elif item.status.value == 'sent' %}status-success{% else %}status-warning{% endif %}">{{ {'failed':'发送失败','sent':'已发送','mocked':'模拟发送 · Mock'}.get(item.status.value, item.status.value) }}</span></td><td>{{ item.created_at }}</td></tr>
+      {% else %}<tr><td colspan="5"><div class="empty-state"><h3>暂无通知记录</h3><p>预约邀请、Offer 与内部提醒的发送结果会显示在这里。</p></div></td></tr>{% endfor %}
     </tbody></table></div>
   </article>
   <article class="work-surface">
-    <header class="surface-header"><div><h2 class="surface-title">导出与腾讯文档</h2><p class="card-subtitle">SQLite 仍是事实源，在线表格只作为协作视图。</p></div></header>
+    <header class="surface-header"><div><h2 class="surface-title">数据导出与同步</h2><p class="card-subtitle">下载招聘数据，或查看腾讯文档 Mock 同步结果。</p></div></header>
     <div class="surface-body stack-sm">
       <div class="button-row"><a class="button" href="/api/exports/recruitment.xlsx">下载 XLSX</a><a class="button" href="/api/exports/recruitment.csv">下载 CSV</a></div>
       <div class="table-wrap"><table class="data-table"><thead><tr><th>类型</th><th>状态</th><th>行数</th><th>说明</th><th>时间</th></tr></thead><tbody>

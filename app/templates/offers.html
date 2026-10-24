@@ -1,24 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Offer{% endblock %}
 {% block page_title %}Offer{% endblock %}
-{% block page_subtitle %}单级审批、草稿摘要、邮件发放、候选人确认和状态同步{% endblock %}
+{% block page_subtitle %}核对条款、完成审批，并跟踪候选人的回复{% endblock %}
 {% block content %}
-<div class="offer-layout">
+{% set offer_labels = {'draft':'草稿','pending_approval':'待审批','approved':'待发送','sent':'已发送','accepted':'已接受','declined':'已拒绝','expired':'已过期'} %}
+<div class="workflow-page offer-layout">
   <section class="work-surface">
     <header class="surface-header">
-      <div><h2 class="surface-title">Offer 队列</h2><p class="card-subtitle">模板公司统一为 Testin，候选人与岗位来自投递记录。</p></div>
+      <div><h2 class="surface-title">Offer 队列 <span class="count-badge">{{ offers|length }}</span></h2><p class="card-subtitle">选择记录，在右侧查看条款与处理进度。</p></div>
     </header>
+    <div class="toolbar workflow-toolbar"><div class="search-field"><svg class="icon search-icon" aria-hidden="true"><use href="/static/icons.svg#search"/></svg><input class="input" aria-label="搜索 Offer" placeholder="搜索候选人或岗位" data-filter-table="#offerTable"></div></div>
     <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>候选人</th><th>岗位</th><th>邮箱</th><th>状态</th><th>审批</th><th class="action-cell">操作</th></tr></thead>
+      <table class="data-table" id="offerTable">
+        <thead><tr><th>候选人 / 岗位</th><th>状态</th><th class="action-cell">操作</th></tr></thead>
         <tbody>
           {% for offer in offers %}
-          <tr>
-            <td><a href="/offers?offer_id={{ offer.id }}">{{ offer.candidate_name }}</a></td>
-            <td>{{ offer.job_title }}</td>
-            <td>{{ offer.candidate_email or '邮箱缺失' }}</td>
-            <td><span class="status {% if offer.status.value in ['accepted','approved','sent'] %}status-success{% elif offer.status.value in ['declined','expired'] %}status-danger{% else %}status-warning{% endif %}">{{ offer.status.value }}</span></td>
-            <td>{% if offer.approvals %}{{ offer.approvals[0].status.value }}{% else %}待审批{% endif %}</td>
+          <tr {% if selected_offer and offer.id == selected_offer.id %}class="is-selected"{% endif %}>
+            <td class="workflow-description"><a href="/offers?offer_id={{ offer.id }}" {% if selected_offer and offer.id == selected_offer.id %}aria-current="true"{% endif %}>{{ offer.candidate_name }}</a><small>{{ offer.job_title }}</small><small>{{ offer.candidate_email or '邮箱缺失' }}</small></td>
+            <td><span class="status {% if offer.status.value in ['accepted','approved','sent'] %}status-success{% elif offer.status.value in ['declined','expired'] %}status-danger{% else %}status-warning{% endif %}">{{ offer_labels.get(offer.status.value, offer.status.value) }}</span></td>
             <td class="action-cell">
               <div class="button-row">
                 <a class="button button-sm" href="/offers?offer_id={{ offer.id }}">查看</a>
@@ -33,7 +32,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6"><div class="empty-state"><h3>暂无 Offer</h3><p>在面试反馈中选择“发 Offer”后，会自动进入这里。</p></div></td></tr>
+          <tr><td colspan="3"><div class="empty-state"><h3>暂无 Offer</h3><p>在面试反馈中选择“发 Offer”后，会自动进入这里。</p><a class="button" href="/interviews">查看面试进度</a></div></td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -42,7 +41,7 @@
 
   <aside class="work-surface">
     <header class="surface-header">
-      <div><h2 class="surface-title">Offer 详情</h2><p class="card-subtitle">敏感条款必须由 HR 填写，AI 只生成摘要和草稿。</p></div>
+      <div><h2 class="surface-title">{{ selected_offer.candidate_name ~ ' 的 Offer' if selected_offer else 'Offer 详情' }}</h2><p class="card-subtitle">{{ selected_offer.job_title if selected_offer else '选择左侧记录查看详情' }}</p></div>{% if selected_offer %}<span class="status status-primary">{{ offer_labels.get(selected_offer.status.value, selected_offer.status.value) }}</span>{% endif %}
     </header>
     <div class="surface-body">
       {% if selected_offer %}
@@ -89,7 +88,7 @@
           <h3 class="section-title">发放记录</h3>
           <div class="activity-list">{% for item in offer_detail.notifications %}<div class="activity-item"><span class="activity-dot"></span><span>{{ item.channel }} · {{ item.status.value }}<br>{{ item.subject or item.content }}</span><time class="activity-time">{{ item.created_at }}</time></div>{% else %}<p class="muted">尚未发放</p>{% endfor %}</div>
           <h3 class="section-title">候选人回复</h3>
-          <p>{{ selected_offer.status.value }}{% if selected_offer.response_note %} · {{ selected_offer.response_note }}{% endif %}</p>
+          <p>{{ offer_labels.get(selected_offer.status.value, selected_offer.status.value) }}{% if selected_offer.response_note %} · {{ selected_offer.response_note }}{% endif %}</p>
         </div>
       </section>
 

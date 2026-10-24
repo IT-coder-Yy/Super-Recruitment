@@ -3,14 +3,14 @@
 {% block page_title %}系统设置{% endblock %}
 {% block page_subtitle %}模型、通知、会议和采集器配置{% endblock %}
 {% block content %}
-<div class="settings-layout">
+<div class="workflow-page settings-layout">
   <nav class="settings-nav" aria-label="设置分组"><a class="is-active" href="#model">AI 模型</a><a href="#mail">邮件</a><a href="#wecom">企业微信</a><a href="#meeting">腾讯会议</a><a href="#collectors">采集器</a><a href="#security">安全</a></nav>
   <div>
     <section class="work-surface settings-section" id="model"><header class="surface-header"><div><h2 class="surface-title">AI 模型</h2><p class="card-subtitle">默认 Mock，可切换 OpenAI-compatible 服务</p></div></header><div class="surface-body">
       <form method="post" action="/settings" data-unsaved-warning>
-        <div class="form-grid"><div class="field"><label for="provider">运行模式</label><select class="select" id="provider" name="provider"><option value="mock" {% if settings.provider == 'mock' %}selected{% endif %}>Mock（零成本）</option><option value="openai_compatible" {% if settings.provider != 'mock' %}selected{% endif %}>OpenAI-compatible</option></select></div><div class="field"><label for="model">模型名称</label><input class="input" id="model" name="model" value="{{ settings.model }}" placeholder="deepseek-chat"></div><div class="field"><label for="base_url">API Base URL</label><input class="input" id="base_url" name="base_url" value="{{ settings.base_url }}" placeholder="https://api.deepseek.com"></div><div class="field"><label for="api_key">API Key</label><div style="display:flex;gap:8px"><input class="input" type="password" id="api_key" name="api_key" autocomplete="new-password" placeholder="留空则保留现有密钥"><button class="button" type="button" data-password-toggle="api_key">显示</button></div></div></div>
+        <div class="form-grid"><div class="field"><label for="provider">运行模式</label><select class="select" id="provider" name="provider"><option value="mock" {% if settings.provider == 'mock' %}selected{% endif %}>Mock（零成本）</option><option value="openai_compatible" {% if settings.provider != 'mock' %}selected{% endif %}>OpenAI-compatible</option></select></div><div class="field"><label for="llmModel">模型名称</label><input class="input" id="llmModel" name="model" value="{{ settings.model }}" placeholder="deepseek-chat"></div><div class="field"><label for="base_url">API Base URL</label><input class="input" id="base_url" name="base_url" value="{{ settings.base_url }}" placeholder="https://api.deepseek.com"></div><div class="field"><label for="api_key">API Key</label><div class="workflow-password"><input class="input" type="password" id="api_key" name="api_key" autocomplete="new-password" placeholder="留空则保留现有密钥"><button class="button" type="button" data-password-toggle="api_key">显示</button></div></div></div>
         <div class="key-status" style="margin-top:14px"><div><strong>密钥状态</strong><small>仅显示末尾 4 位，不回显完整密钥</small></div><span class="status {% if settings.api_key_configured %}status-success{% else %}status-warning{% endif %}">{% if settings.api_key_configured %}已配置 {{ settings.api_key_hint }}{% else %}未配置{% endif %}</span></div>
-        <div class="form-actions"><button class="button" type="button" disabled>测试连接（待接入）</button><button class="button button-primary" type="submit">保存模型配置</button></div>
+        <div class="form-actions"><button class="button button-primary" type="submit">保存模型配置</button></div>
       </form>
       <form method="post" action="/api/settings/llm/clear" class="danger-zone">
         <div><strong>清空 API Key</strong><small>删除本地保存的密钥，并将运行模式回退到 Mock；审计日志只记录操作，不记录密钥。</small></div>
@@ -31,9 +31,25 @@
 
     <section class="work-surface settings-section" id="mail"><header class="surface-header"><div><h2 class="surface-title">邮件</h2><p class="card-subtitle">Offer 邮件和候选人外部通知</p></div><span class="status {% if integrations.smtp_configured %}status-success{% else %}status-warning{% endif %}">{% if integrations.smtp_configured %}SMTP 已配置{% else %}Mock 邮件{% endif %}</span></header><div class="surface-body"><div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>当前通过 `.env` 配置 SMTP_HOST、SMTP_PORT、SMTP_USERNAME、SMTP_PASSWORD、SMTP_FROM。未配置时 Offer 发放记录为 Mock 邮件。</div></div></section>
     {% for id,title,description,status in [('meeting','腾讯会议','当前使用 Mock 适配器','Mock 可用'),('collectors','采集器','模拟平台可用，正式 API / RPA 需授权','部分可用')] %}
-    <section class="work-surface settings-section" id="{{ id }}"><header class="surface-header"><div><h2 class="surface-title">{{ title }}</h2><p class="card-subtitle">{{ description }}</p></div><span class="status {% if '可用' in status %}status-success{% else %}status-warning{% endif %}">{{ status }}</span></header><div class="surface-body"><div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>当前暂无可验证的企业凭证。接入后将在此显示响应时间、错误原因和下一步操作。</div></div></section>
+    <section class="work-surface settings-section" id="{{ id }}"><header class="surface-header"><div><h2 class="surface-title">{{ title }}</h2><p class="card-subtitle">{{ description }}</p></div><span class="status status-warning">{{ status }}</span></header><div class="surface-body"><p class="muted">{% if id == 'meeting' %}候选人确认预约后，系统创建 Mock 会议记录。真实会议服务与企业日历尚未接入。{% else %}可上传本地简历或采集模拟平台数据；接入真实平台前需获得授权。{% endif %}</p><a class="button button-sm" href="{{ '/interviews' if id == 'meeting' else '/import' }}">{{ '查看面试安排' if id == 'meeting' else '前往数据采集' }}</a></div></section>
     {% endfor %}
     <section class="work-surface settings-section" id="security"><header class="surface-header"><h2 class="surface-title">安全边界</h2></header><div class="surface-body stack-sm"><div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>API Key、Webhook 和 SMTP 密钥保存在本地 `.env`，日志不记录完整密钥、手机号、邮箱或简历正文。</div><div class="notice notice-warning"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>处理真实候选人数据前，需要确认模型供应商、邮件和企业微信的数据处理条款。</div></div></section>
   </div>
 </div>
 {% endblock %}
+{% block scripts %}<script>
+(() => {
+  const links = Array.from(document.querySelectorAll('.settings-nav a'));
+  function updateSection() {
+    const selected = window.location.hash || '#model';
+    links.forEach((link) => {
+      const active = link.getAttribute('href') === selected;
+      link.classList.toggle('is-active', active);
+      if (active) link.setAttribute('aria-current', 'location');
+      else link.removeAttribute('aria-current');
+    });
+  }
+  window.addEventListener('hashchange', updateSection);
+  updateSection();
+})();
+</script>{% endblock %}

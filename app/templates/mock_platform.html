@@ -3,6 +3,7 @@
 {% block page_title %}模拟招聘平台{% endblock %}
 {% block page_subtitle %}演示从外部招聘页面采集候选人简历、初步聊天和岗位 JD{% endblock %}
 {% block content %}
+<div class="workflow-page workflow-mock">
 <div class="mock-disclaimer" role="note">
   <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>
   <div><strong>纯虚构演示页面。</strong>页面名称、候选人、聊天记录、联系方式和岗位内容均为测试数据，不代表、仿冒或关联任何真实招聘平台，也不使用任何真实平台商标。</div>
@@ -85,10 +86,11 @@
       </div>
       <footer class="card-footer">
         <span class="muted">采集将同步当前虚构简历、聊天与岗位 JD。</span>
-        <pre id="captureResult" class="notice mock-result" hidden></pre>
+        <pre id="captureResult" class="notice mock-result" hidden aria-live="polite"></pre>
       </footer>
     </article>
   </div>
+</div>
 </div>
 {% endblock %}
 {% block scripts %}

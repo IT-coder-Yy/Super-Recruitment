@@ -3,14 +3,15 @@
 {% block page_title %}数据采集{% endblock %}
 {% block page_subtitle %}上传简历后先解析预览，人工确认后才写入候选人库{% endblock %}
 {% block content %}
+<div class="workflow-page workflow-import">
 <nav class="stepper" aria-label="采集步骤">
-  <div class="step is-complete"><span class="step-number">1</span><span>上传/采集</span></div>
-  <div class="step is-active"><span class="step-number">2</span><span>提取与解析</span></div>
+  <div class="step is-active" aria-current="step"><span class="step-number">1</span><span>上传/采集</span></div>
+  <div class="step"><span class="step-number">2</span><span>提取与解析</span></div>
   <div class="step"><span class="step-number">3</span><span>预览和查重</span></div>
   <div class="step"><span class="step-number">4</span><span>确认入库</span></div>
 </nav>
 
-<section class="grid-2">
+<section class="grid-2 import-workspace">
   <div class="stack">
     <article class="work-surface">
       <header class="surface-header">
@@ -31,10 +32,10 @@
               <input class="input" id="owner" name="owner" value="HR">
             </div>
           </div>
-          <div class="field">
-            <label for="jdText">岗位 JD（可选）</label>
+          <details class="workflow-inline-details"><summary>补充岗位 JD（可选）</summary><div class="field">
+            <label for="jdText">岗位职责与要求</label>
             <textarea class="textarea" id="jdText" name="jd_text" placeholder="粘贴 JD 后，解析结果会同步识别岗位要求和技能匹配。"></textarea>
-          </div>
+          </div></details>
           <div class="upload-zone" data-file-zone="#fileList">
             <input id="resumeFiles" name="files" type="file" multiple accept=".txt,.md,.pdf,.docx" aria-label="选择简历文件">
             <div>
@@ -76,14 +77,14 @@
             </thead>
             <tbody>
               {% for task in import_tasks %}
-              <tr>
+              <tr data-import-row="{{ task.id }}">
                 <td>
                   <strong>#{{ task.id }}</strong>
                   <small class="muted">{{ task.files|length }} 个文件 · {{ task.job_title }}</small>
                 </td>
                 <td>{{ task.candidate_name }}</td>
-                <td><span class="status {% if task.status == 'failed' %}status-danger{% elif task.status == 'needs_review' %}status-warning{% elif task.status == 'confirmed' %}status-success{% else %}status-primary{% endif %}">{{ task.status_label }}</span></td>
-                <td>{{ task.duplicate.label }}</td>
+                <td><span data-import-status class="status {% if task.status == 'failed' %}status-danger{% elif task.status == 'needs_review' %}status-warning{% elif task.status == 'confirmed' %}status-success{% else %}status-primary{% endif %}">{{ task.status_label }}</span></td>
+                <td data-import-duplicate>{{ task.duplicate.label }}</td>
                 <td class="action-cell">
                   <div class="button-row">
                     {% if task.status in ['uploaded','failed','needs_review'] %}
@@ -112,11 +113,11 @@
     <header class="surface-header">
       <div>
         <h2 class="surface-title">解析预览</h2>
-        <p class="card-subtitle">默认展示 HR 可读信息，JSON 放在技术详情。</p>
+        <p class="card-subtitle">核对资料和查重结果，再确认写入候选人库。</p>
       </div>
     </header>
     <div class="surface-body">
-      <div id="importPreview" class="stack-sm" aria-live="polite">
+      <div id="importPreview" class="stack-sm" aria-live="polite" tabindex="-1">
         <div class="empty-state">
           <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>
           <h3>选择一个任务查看解析结果</h3>
@@ -142,6 +143,7 @@
     <pre id="mockImportResult" class="notice mock-result" hidden aria-live="polite"></pre>
   </div>
 </section>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -168,6 +170,24 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const renderPreview = (task) => {
+    const stepIndex = task.status === "confirmed" ? 3 : task.status === "needs_review" ? 2 : 1;
+    document.querySelectorAll('.stepper .step').forEach((step, index) => {
+      step.classList.toggle('is-complete', index < stepIndex);
+      step.classList.toggle('is-active', index === stepIndex);
+      if (index === stepIndex) step.setAttribute('aria-current', 'step');
+      else step.removeAttribute('aria-current');
+    });
+    document.querySelectorAll('[data-import-row]').forEach((row) => {
+      const selected = row.dataset.importRow === String(task.id);
+      row.classList.toggle('is-selected', selected);
+      if (!selected) return;
+      const status = row.querySelector('[data-import-status]');
+      if (status) { status.className = `status ${statusClass(task.status)}`; status.textContent = task.status_label; }
+      const duplicate = row.querySelector('[data-import-duplicate]');
+      if (duplicate) duplicate.textContent = task.duplicate?.label || '待查重';
+      const parse = row.querySelector('[data-import-action="parse"]');
+      if (parse) parse.hidden = !['uploaded', 'failed', 'needs_review'].includes(task.status);
+    });
     const summary = task.summary?.human_summary || task.preview?.human_summary || {};
     const duplicate = task.duplicate || {};
     const missing = task.missing_fields || task.summary?.missing_fields || [];
@@ -241,7 +261,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!response.ok) throw new Error(data.detail || "上传失败");
       window.AdminUI?.showToast("导入任务已创建", data.message, "success");
       renderPreview(data.task);
-      window.location.reload();
+      window.location.href = `/import?task_id=${encodeURIComponent(data.task.id)}`;
     } catch (error) {
       window.AdminUI?.showToast("上传失败", error.message, "error");
     } finally {
@@ -258,6 +278,8 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       if (action === "view") {
         await fetchTask(taskId);
+        preview.focus({ preventScroll: true });
+        if (window.matchMedia('(max-width: 979px)').matches) preview.scrollIntoView({ block: 'start' });
       } else if (action === "parse") {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
         const response = await fetch(`/api/import/tasks/${taskId}/parse`, { method: "POST", headers: { Accept: "application/json", "X-CSRF-Token": csrfToken } });
@@ -291,6 +313,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("refreshImportTasks")?.addEventListener("click", () => window.location.reload());
+  const initialTaskId = new URLSearchParams(window.location.search).get('task_id');
+  if (initialTaskId && /^\d+$/.test(initialTaskId)) {
+    fetchTask(initialTaskId).catch((error) => window.AdminUI?.showToast('读取任务失败', error.message, 'error'));
+  }
 
   const mockButton = document.getElementById("mockImportButton");
   const mockResult = document.getElementById("mockImportResult");

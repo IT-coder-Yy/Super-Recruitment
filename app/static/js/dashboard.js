@@ -1,96 +1,81 @@
 (function () {
   "use strict";
-
   const root = document.querySelector("[data-dashboard]");
   if (!root) return;
-
-  const endpoint = root.dataset.endpoint || "/api/dashboard/summary";
-  const interval = Math.max(5000, Number(root.dataset.interval || 15000));
   const indicator = document.querySelector("[data-live-status]");
   const updatedAt = document.querySelector("[data-updated-at]");
-
-  const aliases = {
-    new_today: ["new_today", "today_new", "new_candidates", "today_candidates"],
-    pending_review: ["pending_review", "pending_evaluations", "review_pending"],
-    pending_schedule: ["pending_schedule", "schedule_pending"],
-    pending_feedback: ["pending_feedback", "feedback_pending"],
-    overdue: ["overdue", "overdue_tasks", "overdue_count"],
-    applications: ["applications", "applied", "total_applications"],
-    screened: ["screened", "screening", "screened_count"],
-    interviews: ["interviews", "interview", "interview_count"],
-    offers: ["offers", "offer", "offer_count"],
-    onboarded: ["onboarded", "hires", "joined"]
-  };
-
-  function pick(source, names) {
-    for (const name of names) {
-      if (source && source[name] !== undefined && source[name] !== null) return source[name];
-    }
-    return undefined;
+  const stages = [["applications", "投递"], ["screened", "初筛"], ["interviews", "面试"], ["offers", "Offer"], ["onboarded", "入职"]];
+  let refreshing = false;
+  function textElement(tag, value, className) {
+    const el = document.createElement(tag);
+    el.textContent = value;
+    if (className) el.className = className;
+    return el;
   }
-
-  function normalize(payload) {
-    const source = payload && payload.data ? payload.data : (payload || {});
-    const metrics = source.metrics || source.summary || source;
-    const funnel = source.funnel || source.recruitment_funnel || {};
-    const result = {};
-    Object.entries(aliases).forEach(([key, names]) => {
-      result[key] = pick(key in funnel ? funnel : metrics, names);
-      if (result[key] === undefined) result[key] = pick(funnel, names);
-    });
-    result.jobs = source.jobs || source.job_progress || [];
-    result.channels = source.channels || source.channel_stats || [];
-    return result;
-  }
-
   function render(data) {
-    document.querySelectorAll("[data-metric]").forEach((element) => {
-      const value = data[element.dataset.metric];
-      if (value !== undefined) element.textContent = Number(value).toLocaleString("zh-CN");
+    document.querySelectorAll("[data-metric]").forEach(el => {
+      const value = data[el.dataset.metric];
+      if (typeof value === "number") el.textContent = value.toLocaleString("zh-CN");
     });
-
-    const funnelValues = ["applications", "screened", "interviews", "offers", "onboarded"];
-    const max = Math.max(1, ...funnelValues.map((key) => Number(data[key] || 0)));
-    funnelValues.forEach((key) => {
-      const bar = document.querySelector(`[data-funnel="${key}"]`);
-      if (!bar || data[key] === undefined) return;
-      const value = Number(data[key] || 0);
-      bar.style.height = `${Math.max(38, Math.round((value / max) * 142))}px`;
-      const label = bar.querySelector("[data-funnel-value]");
-      if (label) label.textContent = value.toLocaleString("zh-CN");
+    const funnel = data.funnel;
+    const max = Math.max(1, ...stages.map(([key]) => funnel[key]));
+    stages.forEach(([key]) => {
+      const bar = root.querySelector('[data-funnel="' + key + '"]');
+      bar.style.height = Math.max(38, Math.round(funnel[key] / max * 142)) + "px";
+      bar.querySelector("[data-funnel-value]").textContent = funnel[key];
     });
-
-    if (indicator) {
-      indicator.classList.remove("is-offline");
-      indicator.textContent = "实时更新中";
+    root.querySelector(".funnel").setAttribute("aria-label", "招聘漏斗：" + stages.map(([key, label]) => label + " " + funnel[key]).join("，"));
+    const jobs = root.querySelector("[data-dashboard-jobs]");
+    jobs.replaceChildren();
+    data.jobs.forEach(job => {
+      const row = document.createElement("tr");
+      row.append(textElement("td", job.name), textElement("td", job.count));
+      jobs.appendChild(row);
+    });
+    if (!data.jobs.length) {
+      const row = document.createElement("tr");
+      const cell = textElement("td", "暂无岗位数据");
+      cell.colSpan = 2;
+      row.appendChild(cell);
+      jobs.appendChild(row);
     }
-    if (updatedAt) {
-      updatedAt.textContent = new Intl.DateTimeFormat("zh-CN", {
-        hour: "2-digit", minute: "2-digit", second: "2-digit"
-      }).format(new Date());
-    }
+    const channels = root.querySelector("[data-dashboard-channels]");
+    channels.replaceChildren();
+    const channelMax = Math.max(1, ...data.channels.map(item => item.count));
+    data.channels.forEach(item => {
+      const row = document.createElement("div");
+      row.className = "bar-row";
+      const track = document.createElement("div");
+      track.className = "bar-track";
+      track.setAttribute("aria-hidden", "true");
+      const fill = document.createElement("div");
+      fill.className = "bar-fill";
+      fill.style.width = item.count / channelMax * 100 + "%";
+      track.appendChild(fill);
+      row.append(textElement("span", item.name), track, textElement("span", item.count, "bar-value"));
+      channels.appendChild(row);
+    });
+    if (!data.channels.length) channels.appendChild(textElement("p", "暂无渠道数据", "muted"));
+    channels.appendChild(textElement("p", "统计范围：当前全部来源记录。", "muted"));
+    indicator.classList.remove("is-offline", "status-warning");
+    indicator.classList.add("status-success");
+    indicator.textContent = "实时更新中";
+    updatedAt.textContent = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
   }
-
   async function refresh() {
+    if (refreshing || document.hidden) return;
+    refreshing = true;
     try {
-      const response = await fetch(endpoint, {
-        headers: { Accept: "application/json" },
-        cache: "no-store"
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      render(normalize(await response.json()));
-    } catch (error) {
-      if (indicator) {
-        indicator.classList.add("is-offline");
-        indicator.textContent = "静态数据 · 等待接口";
-      }
-      root.dataset.lastError = error.message;
-    }
+      const response = await fetch(root.dataset.endpoint, { headers: { Accept: "application/json" }, cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      render(await response.json());
+    } catch (_) {
+      indicator.classList.remove("status-success");
+      indicator.classList.add("is-offline", "status-warning");
+      indicator.textContent = "更新失败 · 保留上次数据";
+    } finally { refreshing = false; }
   }
-
   refresh();
-  window.setInterval(refresh, interval);
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) refresh();
-  });
+  window.setInterval(refresh, Math.max(5000, Number(root.dataset.interval || 10000)));
+  document.addEventListener("visibilitychange", refresh);
 })();

@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% block title %}候选人详情{% endblock %}
 {% block page_title %}候选人详情{% endblock %}
-{% block page_subtitle %}默认展示 HR 和面试官可读信息，JSON 仅用于技术排查{% endblock %}
+{% block page_subtitle %}在同一处查看资料、核对评估证据并推进招聘流程{% endblock %}
+{% block topbar_actions %}<a class="button" href="/candidates">返回候选人</a>{% endblock %}
 {% block content %}
-{% set current = rows[0] if rows else none %}
-<div class="detail-layout">
+{% set selected_id = request.query_params.get('application_id', '')|int %}
+{% set current = (rows|selectattr('id', 'equalto', selected_id)|first) or (rows[0] if rows else none) %}
+<div class="workflow-page detail-layout">
   <div class="stack">
     <section class="work-surface">
       <div class="surface-body profile-hero">
@@ -12,7 +14,7 @@
         <div class="profile-main">
           <div class="profile-title">
             <h2>{{ candidate.name or '待补充姓名' }}</h2>
-            <span class="status status-primary">{{ candidate.dedup_status.value }}</span>
+            <span class="status {% if candidate.dedup_status.value == 'needs_review' %}status-warning{% else %}status-success{% endif %}">{{ '待确认重复信息' if candidate.dedup_status.value == 'needs_review' else '查重已确认' }}</span>
           </div>
           <div class="profile-meta">
             <span>电话：{{ candidate.phone or '未提供' }}</span>
@@ -21,21 +23,17 @@
           </div>
         </div>
       </div>
+      {% if rows %}<nav class="application-switcher" aria-label="选择投递岗位">{% for row in rows %}<a class="{% if current and current.id == row.id %}is-active{% endif %}" href="/candidates/{{ candidate.id }}?application_id={{ row.id }}" {% if current and current.id == row.id %}aria-current="true"{% endif %}><strong>{{ row.job_title }}</strong><span>{{ row.status_label }}</span></a>{% endfor %}</nav>{% endif %}
     </section>
 
-    <section class="work-surface">
-      <header class="surface-header">
-        <div>
-          <h2 class="surface-title">补充资料</h2>
-          <p class="card-subtitle">用于修正解析缺失字段；原始简历和技术 JSON 不会被覆盖。</p>
-        </div>
-      </header>
+    <details class="work-surface workflow-disclosure">
+      <summary><span><strong>补充资料</strong><small>{% if profile.missing_fields %}{{ profile.missing_fields|length }} 项信息待补充{% else %}修正联系方式、技能与沟通记录{% endif %}</small></span><span class="muted">编辑</span></summary>
       <div class="surface-body">
         <form method="post" action="/api/candidates/{{ candidate.id }}/supplement">
           <div class="form-grid">
             <div class="field"><label for="supplement-name">姓名</label><input class="input" id="supplement-name" name="name" value="{{ candidate.name or '' }}" placeholder="待补充姓名"></div>
-            <div class="field"><label for="supplement-phone">手机号</label><input class="input" id="supplement-phone" name="phone" value="{{ candidate.phone or '' }}" placeholder="待补充手机号"></div>
-            <div class="field"><label for="supplement-email">邮箱</label><input class="input" id="supplement-email" name="email" value="{{ candidate.email or '' }}" placeholder="待补充邮箱"></div>
+            <div class="field"><label for="supplement-phone">手机号</label><input class="input" type="tel" id="supplement-phone" name="phone" value="{{ candidate.phone or '' }}" placeholder="待补充手机号"></div>
+            <div class="field"><label for="supplement-email">邮箱</label><input class="input" type="email" id="supplement-email" name="email" value="{{ candidate.email or '' }}" placeholder="待补充邮箱"></div>
             <div class="field"><label for="supplement-skills">技能</label><input class="input" id="supplement-skills" name="skills" value="{{ profile.skills|join('；') if profile.skills else '' }}" placeholder="Python；FastAPI；SQL"></div>
           </div>
           <div class="field"><label for="supplement-experience">经历</label><textarea class="textarea" id="supplement-experience" name="experience" placeholder="每行一条项目、实习或工作经历"></textarea></div>
@@ -44,7 +42,7 @@
           <div class="form-actions"><button class="button button-primary" type="submit">保存补充资料</button></div>
         </form>
       </div>
-    </section>
+    </details>
 
     <section class="work-surface">
       <header class="surface-header">
@@ -66,10 +64,6 @@
 
         <section class="tab-panel is-active" data-tab-panel="summary">
           <div class="stack">
-            <div class="notice">
-              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>
-              这里展示可读摘要；原始结构化 JSON 不作为默认阅读界面。
-            </div>
             <p>{{ profile.headline }}</p>
             <div class="info-grid">
               <div class="info-item"><span>可到岗/可面试</span><strong>{{ profile.availability }}</strong></div>
@@ -189,7 +183,7 @@
           <div class="info-grid">
             <div class="info-item"><span>面试时间</span><strong>{{ current.interview_time if current and current.interview_time else '未确认' }}</strong></div>
             <div class="info-item"><span>会议状态</span><strong>{% if current and current.meeting_url %}<a href="{{ current.meeting_url }}">Mock 腾讯会议</a>{% else %}未创建{% endif %}</strong></div>
-            <div class="info-item"><span>通知渠道</span><strong>邮件 / 企业微信待接入</strong></div>
+            <div class="info-item"><span>面试安排</span><strong><a href="/interviews">查看排期与反馈</a></strong></div>
           </div>
         </section>
 
@@ -217,7 +211,7 @@
     </section>
 
     {% for row in rows %}
-    <section class="work-surface">
+    <section class="work-surface {% if current and row.id == current.id %}is-current-application{% endif %}" id="application-{{ row.id }}">
       <header class="surface-header">
         <div>
           <h2 class="surface-title">{{ row.job_title }}</h2>
@@ -245,17 +239,19 @@
   </div>
 
   <aside class="work-surface context-panel">
-    <header class="surface-header"><h2 class="surface-title">当前上下文</h2></header>
+    <header class="surface-header"><h2 class="surface-title">本次投递</h2></header>
     <div class="surface-body context-list">
+      <div class="context-item"><span>应聘岗位</span><strong>{{ current.job_title if current else '暂无投递' }}</strong></div>
       <div class="context-item"><span>当前阶段</span><strong>{{ current.status_label if current else '暂无投递' }}</strong></div>
       <div class="context-item"><span>负责人</span><strong>{{ current.owner if current else '未分配' }}</strong></div>
       <div class="context-item"><span>AI 总分</span><strong>{{ current.score if current and current.score is not none else '待评估' }}</strong></div>
       <div class="context-item"><span>下一步动作</span><strong>{% if current and current.status == 'evaluation_review' %}人工审核评估结果{% elif current and current.status == 'interview_pending' %}生成候选时段{% else %}按当前状态继续处理{% endif %}</strong></div>
       <div class="context-item"><span>最近更新</span><strong>{{ current.updated_at if current else '—' }}</strong></div>
-      <form method="post" action="/api/candidates/{{ candidate.id }}/delete" class="danger-zone">
+      {% if current %}<a class="button button-primary" href="#application-{{ current.id }}">处理当前投递</a>{% endif %}
+      <details class="workflow-danger"><summary>数据管理</summary><form method="post" action="/api/candidates/{{ candidate.id }}/delete" class="danger-zone">
         <div class="field"><label for="delete-confirm">删除候选人数据</label><input class="input" id="delete-confirm" name="confirm" placeholder="输入 DELETE 确认"></div>
         <button class="button button-danger" type="submit" data-confirm="确认删除该候选人及其投递、来源和流程数据？此操作不可撤销。">删除数据</button>
-      </form>
+      </form></details>
     </div>
   </aside>
 </div>

@@ -1,56 +1,84 @@
 {% extends "base.html" %}
-{% block title %}工作台{% endblock %}
-{% block page_title %}工作台{% endblock %}
-{% block page_subtitle %}今天必须处理的任务与招聘阻塞{% endblock %}
-{% block topbar_actions %}<a class="button button-primary" href="/import"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#database"/></svg>采集招聘数据</a>{% endblock %}
+{% block title %}招聘工作台{% endblock %}
+{% block body_class %}home-page{% endblock %}
+{% block page_title %}招聘工作台{% endblock %}
+{% block page_subtitle %}{{ workbench.date_label }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/workbench.css">{% endblock %}
+{% block topbar_actions %}<a class="button" href="/import"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#upload"/></svg>导入简历</a>{% endblock %}
 {% block content %}
-<section class="metrics-grid" aria-label="今日任务摘要">
-  {% for label,key,state,help in [
-    ('待审核','pending_review','is-warning','需要人工查看证据'),
-    ('待排期','pending_schedule','','等待生成面试时段'),
-    ('待反馈','pending_feedback','','面试后等待评价'),
-    ('已超时','overdue','is-danger','需要立即处理')] %}
-  <article class="metric-card">
-    <div class="metric-top"><span class="metric-label">{{ label }}</span><span class="metric-state {{ state }}">{{ help }}</span></div>
-    <div class="metric-value {% if state == 'is-danger' and summary[key] %}text-danger{% elif state == 'is-warning' and summary[key] %}text-warning{% endif %}">{{ summary[key]|default(0) }}</div>
-  </article>
-  {% endfor %}
+<section class="wb-flow" aria-labelledby="flow-title">
+  <div class="wb-flow-heading"><h2 id="flow-title">招聘流程</h2><span title="全部投递按当前招聘状态汇总，不代表本月新增或历史转化率">全部投递 · 当前状态</span></div>
+  <ol class="wb-flow-steps">
+    {% for step in workbench.flow %}
+    <li><a href="{{ step.href }}" aria-label="{{ step.label }} {{ step.count }}，查看详情"><span class="wb-flow-icon"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#{{ step.icon }}"/></svg></span><span class="wb-flow-copy"><span>{{ step.label }}</span><strong>{{ step.count }}</strong></span></a>{% if not loop.last %}<svg class="icon wb-flow-arrow" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg>{% endif %}</li>
+    {% endfor %}
+  </ol>
 </section>
 
-<section class="grid-2">
-  <article class="work-surface">
-    <header class="surface-header"><div><h2 class="surface-title">我的待办</h2><p class="card-subtitle">按截止时间排序，可直接进入处理上下文</p></div><a class="section-link" href="/follow-ups">查看全部</a></header>
-    <div class="surface-body task-list">
-      {% for task in tasks %}
-      <div class="task-item">
-        <span class="task-marker" aria-hidden="true"><svg class="icon"><use href="/static/icons.svg#clock"/></svg></span>
-        <span class="task-copy"><strong>{{ task.reason|default(task.rule_code, true) }}</strong><small>{{ task.suggested_action|default('请及时处理', true) }} · {{ task.owner|default('未分配', true) }}</small></span>
-        <span class="task-time">{{ task.due_at or '未设置截止时间' }}</span>
-        <a class="button button-sm" href="/follow-ups">处理</a>
+{% if workbench.overdue_count %}
+<a class="wb-alert" href="/follow-ups"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg><span><strong>{{ workbench.overdue_count }} 项跟进任务已超时</strong><span>，请及时处理</span></span><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a>
+{% endif %}
+
+<div class="wb-layout">
+  <section class="wb-candidates" aria-labelledby="candidates-title" data-workbench>
+    <header class="wb-candidates-heading"><h2 id="candidates-title">当前候选人 <span class="wb-total"><span data-active-count>{{ workbench.active_count }}</span> 条投递</span></h2><a class="section-link" href="/candidates">全部投递<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a></header>
+    <div class="wb-toolbar">
+      <label class="wb-search"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#search"/></svg><span class="wb-sr-only">搜索姓名、岗位或负责人</span><input type="search" placeholder="搜索姓名、岗位或负责人" data-workbench-search autocomplete="off"></label>
+      <label class="wb-job"><span class="wb-sr-only">筛选岗位</span><select class="select" data-workbench-job><option value="">全部岗位</option>{% for job in workbench.jobs %}<option value="{{ job.id }}">{{ job.title }}</option>{% endfor %}</select></label>
+      <div class="wb-view-toggle" role="group" aria-label="候选人视图"><button type="button" data-workbench-view="board" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#board"/></svg><span>看板</span></button><button type="button" data-workbench-view="list" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#list"/></svg><span>列表</span></button></div>
+    </div>
+    <div class="wb-filter-status"><span data-workbench-results aria-live="polite">{{ workbench.active_count }} 条进行中的投递 · 按招聘阶段整理</span><button class="wb-reset" type="button" data-workbench-reset hidden>清除筛选</button></div>
+
+    <div class="wb-board-scroll" data-workbench-panel="board" role="region" aria-label="招聘阶段看板" tabindex="0">
+      <div class="wb-board">
+        {% for column in workbench.columns %}
+        <section class="wb-column" data-workbench-column="{{ column.key }}" data-stage-label="{{ column.label }}" aria-labelledby="stage-{{ column.key }}">
+          <header class="wb-column-heading"><h3 id="stage-{{ column.key }}"><span class="wb-stage-dot wb-stage-{{ column.key }}" aria-hidden="true"></span>{{ column.label }} <span data-column-count>{{ column.cards|length }}</span></h3><span class="wb-sr-only">{{ column.description }}</span></header>
+          <div class="wb-column-cards" tabindex="0" role="region" aria-label="{{ column.label }}候选人列表">
+            {% for card in column.cards %}
+            <article class="wb-candidate-card" data-candidate-card data-job="{{ card.job_id }}" data-stage="{{ column.key }}" data-search="{{ card.candidate_name }} {{ card.job_title }} {{ card.owner }}">
+              <div class="wb-person"><span class="wb-avatar" aria-hidden="true">{{ card.candidate_name[:1] }}</span><div><a class="wb-person-name" href="{{ card.href }}">{{ card.candidate_name }}</a><p>{{ card.job_title }}</p></div></div>
+              <div class="wb-card-status wb-tone-{{ card.tone }}"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#{{ 'clock' if column.key == 'interview' else 'file' if column.key == 'review' else 'audit' if column.key == 'offer' else 'checklist' }}"/></svg><span>{{ card.status_label }}</span></div>
+              {% if card.note %}<p class="wb-card-note">{{ card.note }}</p>{% endif %}
+              {% if card.facts %}<dl class="wb-facts">{% for label,value in card.facts %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl>{% endif %}
+              <div class="wb-card-meta"><span>{{ card.owner }}</span>{% if card.updated_label %}<span>{{ card.updated_label }}更新</span>{% endif %}</div>
+              <a class="button button-sm wb-card-action {% if column.key == 'review' and card.status in ['needs_review','evaluation_review'] %}button-primary{% endif %}" href="{{ card.action_href }}">{{ card.action }}<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#arrow"/></svg><span class="wb-sr-only">：{{ card.candidate_name }}的{{ card.job_title }}投递</span></a>
+            </article>
+            {% endfor %}
+            <p class="wb-column-empty" data-column-empty {% if column.cards %}hidden{% endif %}>暂无{{ column.label }}候选人</p>
+          </div>
+        </section>
+        {% endfor %}
       </div>
-      {% else %}
-      <div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#check"/></svg><h3>当前没有待办</h3><p>采集模拟招聘数据后，系统会根据状态和超时规则生成任务。</p><a class="button button-primary" href="/mock-platform">采集模拟数据</a></div>
-      {% endfor %}
     </div>
-  </article>
 
-  <aside class="work-surface">
-    <header class="surface-header"><div><h2 class="surface-title">招聘风险与自动化状态</h2><p class="card-subtitle">失败原因和人工接管入口集中展示</p></div></header>
-    <div class="surface-body risk-list">
-      <div class="risk-item"><svg class="icon risk-icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg><span><strong>待人工确认身份</strong><small>{{ summary.pending_review }} 条记录可能缺少关键字段或等待评估审核</small></span><a class="button button-sm" href="/candidates">查看</a></div>
-      <div class="risk-item"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#spark"/></svg><span><strong>模型调用状态</strong><small>当前使用 {{ 'Mock 零成本模式' if summary.total_candidates is defined else '待接入' }}；失败时自动降级</small></span><a class="button button-sm" href="/settings">配置</a></div>
-      <div class="risk-item"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><span><strong>会议与日历同步</strong><small>当前使用 Mock 适配器，真实腾讯会议凭证待接入</small></span><span class="status status-warning">待接入</span></div>
-      <div class="risk-item"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#external"/></svg><span><strong>招聘平台连接器</strong><small>模拟平台可用，正式 API / 受控 RPA 待企业授权</small></span><span class="status status-warning">待接入</span></div>
+    <div class="wb-list table-wrap" data-workbench-panel="list" hidden>
+      <table class="data-table"><caption class="wb-sr-only">进行中的候选人投递</caption><thead><tr><th scope="col">候选人 / 岗位</th><th scope="col">招聘阶段</th><th scope="col">当前状态</th><th scope="col">负责人</th><th scope="col">操作</th></tr></thead><tbody>
+      {% for column in workbench.columns %}{% for card in column.cards %}
+      <tr data-candidate-row data-job="{{ card.job_id }}" data-search="{{ card.candidate_name }} {{ card.job_title }} {{ card.owner }}"><td><a class="wb-list-name" href="{{ card.href }}">{{ card.candidate_name }}</a><small>{{ card.job_title }}</small></td><td>{{ column.label }}</td><td><span class="wb-tone-{{ card.tone }}">{{ card.status_label }}</span></td><td>{{ card.owner }}</td><td><a class="button button-sm" href="{{ card.action_href }}">{{ card.action }}<span class="wb-sr-only">：{{ card.candidate_name }}</span></a></td></tr>
+      {% endfor %}{% endfor %}
+      </tbody></table>
     </div>
+    <div class="wb-no-results" data-workbench-empty {% if workbench.active_count %}hidden{% endif %}><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#users"/></svg><h3 data-empty-title>暂无进行中的候选人</h3><p data-empty-description>导入简历后，候选人会按招聘阶段显示在这里。</p><a class="button" href="/import" data-empty-import>导入简历</a></div>
+    <p class="wb-board-footnote">AI 评估仅供参考，招聘决定由人工确认。</p>
+  </section>
+
+  <aside class="wb-aside" aria-label="面试与今日事项">
+    <section class="wb-panel wb-schedule" aria-labelledby="schedule-title">
+      <header class="wb-panel-heading"><h2 id="schedule-title">今日面试 <span>{{ workbench.interview_count }} 场</span></h2><a class="section-link" href="/interviews" aria-label="查看全部面试">全部<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a></header>
+      <p class="wb-schedule-date">{{ workbench.date_label }} <span>北京时间</span></p>
+      <ol class="wb-agenda">
+        {% for interview in workbench.interviews %}
+        <li class="{% if interview.is_next %}is-next{% endif %}"><a href="{{ interview.href }}"><time datetime="{{ interview.datetime }}">{{ interview.time }}</time><span class="wb-agenda-person"><strong>{{ interview.name }}{% if interview.is_next %}<span class="wb-next-label">{{ interview.timing_label }}</span>{% elif interview.is_completed %}<span class="wb-next-label">已完成</span>{% endif %}</strong><small>{{ interview.job }} · 第 {{ interview.round }} 轮</small></span><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a></li>
+        {% else %}<li class="wb-agenda-empty"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><strong>今日暂无已确认面试</strong><p>可前往面试排期，查看待安排的候选人。</p></li>{% endfor %}
+      </ol>
+      {% if workbench.interview_count > 3 %}<a class="wb-more-agenda" href="/interviews">查看全部排期 · 今日 {{ workbench.interview_count }} 场<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#arrow"/></svg></a>{% endif %}
+    </section>
+
+    <section class="wb-panel" aria-labelledby="reminders-title"><header class="wb-panel-heading"><h2 id="reminders-title">待办提醒</h2><a class="section-link" href="/follow-ups">查看全部<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a></header><ul class="wb-reminders">{% for reminder in workbench.reminders %}<li><a href="{{ reminder.href }}"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#{{ reminder.icon }}"/></svg><span><strong>{{ reminder.label }} <b>{{ reminder.count }}</b></strong><small>{{ reminder.description }}</small></span><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a></li>{% endfor %}</ul></section>
+
+    <section class="wb-panel" aria-labelledby="quick-title"><header class="wb-panel-heading"><h2 id="quick-title">快捷操作</h2></header><div class="wb-quick-actions">{% for href,icon,label in [('/import','upload','导入简历'),('/candidates','users','候选人'),('/interviews','calendar','面试排期'),('/dashboard','chart','招聘看板')] %}<a class="button" href="{{ href }}"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#{{ icon }}"/></svg>{{ label }}</a>{% endfor %}</div></section>
   </aside>
-</section>
-
-<section class="work-surface" style="margin-top:16px">
-  <header class="surface-header"><div><h2 class="surface-title">最近活动</h2><p class="card-subtitle">操作人、Agent、对象、结果与时间</p></div><a class="section-link" href="/audit">完整审计日志</a></header>
-  <div class="surface-body activity-list">
-    {% for log in audits %}
-    <div class="activity-item"><span class="activity-dot" aria-hidden="true"></span><span><strong>{{ log.actor }}</strong> 执行 {{ log.action }}，对象 {{ log.entity_type }}{% if log.entity_id %} #{{ log.entity_id }}{% endif %}</span><time class="activity-time">{{ log.created_at }}</time></div>
-    {% else %}<div class="empty-state"><h3>暂无活动记录</h3><p>系统执行采集、评估和人工决策后会自动记录。</p></div>{% endfor %}
-  </div>
-</section>
+</div>
 {% endblock %}
+{% block scripts %}<script src="/static/js/workbench.js" defer></script>{% endblock %}

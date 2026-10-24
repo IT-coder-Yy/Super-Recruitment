@@ -1,0 +1,129 @@
+.home-page .page-heading { display: flex; align-items: baseline; gap: 20px; }
+.home-page .page-heading p { margin: 0; }
+.wb-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.wb-flow { display: flex; align-items: center; gap: 30px; padding: 20px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.wb-flow-heading { flex: 0 0 auto; }
+.wb-flow-heading h2 { margin: 0 0 3px; font-size: 18px; line-height: 1.4; }
+.wb-flow-heading > span { color: var(--ink-muted); font-size: 12px; }
+.wb-flow-steps { display: flex; flex: 1; align-items: center; list-style: none; padding: 0; margin: 0; min-width: 0; }
+.wb-flow-steps li { display: flex; flex: 1; align-items: center; justify-content: space-between; min-width: 0; }
+.wb-flow-steps li:last-child { flex: .8; }
+.wb-flow-steps a { display: flex; align-items: center; gap: 12px; padding: 3px 5px; border-radius: 8px; }
+.wb-flow-steps a:hover { background: var(--surface-subtle); }
+.wb-flow-icon { display: grid; flex-shrink: 0; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--surface-subtle); }
+.wb-flow-icon .icon { width: 24px; height: 24px; }
+.wb-flow-copy { display: grid; gap: 2px; white-space: nowrap; font-weight: 500; }
+.wb-flow-copy strong { font-size: 25px; line-height: 1.1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.wb-flow-arrow { margin-inline: 6px; width: 14px; color: var(--ink-muted); flex-shrink: 0; }
+.wb-alert { display: flex; align-items: center; gap: 12px; padding: 13px 16px; margin-top: 14px; color: var(--danger); background: var(--danger-soft); border-radius: 8px; }
+.wb-alert > .icon:first-child { flex-shrink: 0; }
+.wb-alert > .icon:last-child { margin-left: auto; flex-shrink: 0; }
+.wb-alert:hover { text-decoration: underline; text-underline-offset: 3px; }
+.wb-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; align-items: start; gap: 16px; margin-top: 22px; }
+.wb-candidates { min-width: 0; }
+.wb-candidates-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+.wb-candidates-heading h2 { margin: 0; font-size: 19px; line-height: 1.5; }
+.wb-total { margin-left: 5px; color: var(--ink-muted); font-size: 16px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.wb-candidates-heading .section-link, .wb-panel-heading .section-link { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-muted); white-space: nowrap; }
+.wb-panel-heading .section-link .icon, .wb-candidates-heading .section-link .icon { width: 12px; height: 12px; }
+.wb-toolbar { display: flex; align-items: center; gap: 8px; }
+.wb-search { display: flex; flex: 1; min-width: 140px; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink-muted); }
+.wb-search > .icon { flex-shrink: 0; width: 16px; }
+.wb-search input { min-width: 0; width: 100%; height: 36px; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: 12px; }
+.wb-search input::placeholder { color: var(--ink-muted); }
+.wb-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.wb-search input:focus-visible { outline: none; }
+.wb-job { min-width: 100px; max-width: 185px; }
+.wb-job .select { min-height: 38px; max-width: 100%; padding-block: 7px; font-size: 12px; }
+.wb-view-toggle { display: flex; flex-shrink: 0; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.wb-view-toggle button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 30px; padding: 4px 9px; border: 0; border-radius: 5px; color: var(--ink-muted); background: transparent; cursor: pointer; font-size: 12px; }
+.wb-view-toggle button[aria-pressed="true"] { background: var(--surface-subtle); color: var(--ink); font-weight: 650; }
+.wb-view-toggle button:hover { color: var(--ink); }
+.wb-view-toggle .icon { width: 14px; height: 14px; }
+.wb-filter-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; color: var(--ink-muted); font-size: 11px; }
+.wb-reset { border: 0; padding: 4px 0; color: var(--ink); background: transparent; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.wb-board-scroll { position: relative; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; padding-bottom: 3px; }
+.wb-board { display: grid; grid-template-columns: repeat(4, minmax(190px, 1fr)); align-items: stretch; gap: 10px; }
+.wb-column { min-width: 0; padding: 8px; border-radius: 10px; background: var(--surface-subtle); }
+.wb-column-heading { margin: 2px 3px 12px; }
+.wb-column-heading h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; font-weight: 650; }
+.wb-column-heading h3 > span:last-child { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 4px; color: var(--ink-muted); background: var(--surface); text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.wb-stage-dot { display: inline-block; width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--ink-muted); }
+.wb-stage-review { background: var(--danger); }
+.wb-stage-interview { background: var(--info, var(--primary)); }
+.wb-stage-offer { background: var(--warning); }
+.wb-stage-onboarding { background: var(--ink-muted); }
+.wb-column-cards { position: relative; display: grid; align-content: start; gap: 10px; min-height: 340px; max-height: max(340px, calc(100dvh - 420px)); overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; scroll-padding-block: 8px; }
+.wb-candidate-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.wb-candidate-card:focus-within { border-color: var(--ink-muted); }
+.wb-person { display: flex; align-items: center; gap: 8px; }
+.wb-person > div { min-width: 0; }
+.wb-avatar { display: grid; flex-shrink: 0; place-items: center; width: 34px; height: 34px; color: var(--ink); background: var(--surface-subtle); border-radius: 50%; font-size: 16px; font-weight: 500; }
+.wb-person-name { display: block; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.wb-person-name:hover, .wb-list-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.wb-person p { margin: 1px 0 0; color: var(--ink-muted); font-size: 11px; overflow-wrap: anywhere; }
+.wb-card-status { display: flex; align-items: start; gap: 6px; margin-top: 14px; font-size: 12px; font-weight: 600; }
+.wb-card-status .icon { width: 15px; height: 18px; flex-shrink: 0; }
+.wb-tone-warning { color: var(--warning); }
+.wb-tone-info { color: var(--info, var(--primary)); }
+.wb-tone-neutral { color: var(--ink-muted); }
+.wb-card-note { margin: 7px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.wb-facts { display: grid; gap: 5px; margin: 10px 0 0; font-size: 11px; }
+.wb-facts > div { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 5px; }
+.wb-facts dt { color: var(--ink-muted); }
+.wb-facts dd { margin: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.wb-card-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; margin: 11px 0 10px; color: var(--ink-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.wb-card-action { display: flex; width: 100%; }
+.wb-card-action .icon { width: 14px; height: 14px; }
+.wb-column-empty { padding: 35px 5px; margin: 0; color: var(--ink-muted); text-align: center; font-size: 12px; }
+.wb-board-footnote { margin: 12px 0 0; color: var(--ink-muted); font-size: 11px; }
+.wb-no-results { padding: 30px 16px; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.wb-no-results > .icon { width: 24px; height: 24px; margin: 0 auto 10px; color: var(--ink-muted); }
+.wb-no-results h3 { font-size: 15px; margin: 0 0 5px; }
+.wb-no-results p { margin: 0 0 12px; color: var(--ink-muted); }
+.wb-list { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.wb-list small { display: block; color: var(--ink-muted); }
+.wb-list-name { font-weight: 600; }
+.wb-list td { vertical-align: middle; }
+.wb-aside { display: grid; gap: 12px; min-width: 0; }
+.wb-panel { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.wb-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wb-panel-heading h2 { margin: 0; font-size: 16px; line-height: 1.4; }
+.wb-panel-heading h2 > span { margin-left: 3px; font-size: 14px; font-weight: 500; }
+.wb-panel-heading .section-link { font-size: 11px; }
+.wb-schedule-date { display: flex; align-items: center; justify-content: space-between; margin: 5px 0 10px; color: var(--ink-muted); font-size: 11px; }
+.wb-schedule-date > span { font-size: 10px; }
+.wb-agenda { list-style: none; margin: 0; padding: 0; }
+.wb-agenda li > a { display: flex; align-items: center; gap: 8px; min-height: 58px; padding: 9px 5px; border-radius: 7px; }
+.wb-agenda li > a:hover, .wb-agenda li.is-next > a { background: var(--surface-subtle); }
+.wb-agenda time { flex-shrink: 0; color: var(--ink-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wb-agenda-person { min-width: 0; flex: 1; }
+.wb-agenda-person strong { display: flex; align-items: center; gap: 5px; font-size: 13px; line-height: 1.5; }
+.wb-agenda-person small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-muted); font-size: 10px; margin-top: 2px; }
+.wb-agenda .icon { flex-shrink: 0; width: 12px; height: 12px; }
+.wb-next-label { color: var(--ink-muted); font-size: 9px; font-weight: 400; }
+.wb-agenda-empty { padding: 19px 4px 12px; text-align: center; color: var(--ink-muted); }
+.wb-agenda-empty .icon { width: 25px; height: 25px; margin: 0 auto 8px; }
+.wb-agenda-empty strong { font-size: 12px; }
+.wb-agenda-empty p { margin: 5px 0 0; font-size: 11px; }
+.wb-more-agenda { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 3px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: 11px; }
+.wb-more-agenda .icon { width: 13px; height: 13px; }
+.wb-reminders { list-style: none; padding: 0; margin: 7px 0 -4px; }
+.wb-reminders li + li { border-top: 1px solid var(--line); }
+.wb-reminders a { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-radius: 4px; }
+.wb-reminders a:hover { background: var(--surface-subtle); }
+.wb-reminders a > .icon:first-child { width: 16px; height: 16px; color: var(--ink-muted); flex-shrink: 0; }
+.wb-reminders a > .icon:last-child { width: 12px; height: 12px; margin-left: auto; color: var(--ink-muted); flex-shrink: 0; }
+.wb-reminders strong { display: block; font-size: 12px; line-height: 1.4; }
+.wb-reminders b { padding-left: 3px; font-variant-numeric: tabular-nums; }
+.wb-reminders small { display: block; color: var(--ink-muted); font-size: 10px; }
+.wb-quick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 11px; }
+.wb-quick-actions .button { min-height: 42px; padding: 7px 5px; font-size: 11px; }
+.wb-quick-actions .icon { width: 16px; height: 16px; }
+.home-page [hidden] { display: none !important; }
+@media (min-width: 1800px) { .wb-board { grid-template-columns: repeat(4, minmax(210px, 1fr)); } }
+@media (max-width: 1400px) { .wb-layout { grid-template-columns: minmax(0, 1fr) 255px; } .wb-flow { gap: 20px; padding: 18px; } .wb-flow-icon { width: 38px; height: 38px; } .wb-flow-steps a { gap: 8px; } .wb-flow-copy strong { font-size: 23px; } }
+@media (max-width: 1180px) { .wb-layout { grid-template-columns: minmax(0, 1fr); } .wb-aside { grid-template-columns: 1.15fr 1fr 1fr; align-items: start; } .wb-flow { gap: 14px; } .wb-flow-heading h2 { font-size: 16px; } .wb-flow-heading > span { font-size: 10px; } .wb-flow-icon { display: none; } .wb-flow-copy { font-size: 12px; } .wb-board { grid-template-columns: repeat(4, minmax(180px, 1fr)); } .wb-panel { padding: 12px; } .wb-panel-heading h2 { font-size: 14px; } .wb-panel-heading h2 > span { font-size: 12px; } .wb-quick-actions { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .home-page .page-heading { align-items: start; flex-direction: column; gap: 6px; } .wb-flow { padding: 14px; align-items: stretch; flex-direction: column; gap: 13px; } .wb-flow-heading { display: flex; justify-content: space-between; align-items: center; } .wb-flow-heading h2 { margin: 0; } .wb-flow-steps li:last-child { flex: .7; } .wb-flow-copy strong { font-size: 22px; } .wb-flow-steps a { padding: 3px 0; } .wb-layout { margin-top: 20px; } .wb-candidates-heading h2 { font-size: 18px; } .wb-toolbar { flex-wrap: wrap; } .wb-search { flex-basis: 100%; order: 0; } .wb-job { max-width: none; flex: 1; order: 1; } .wb-job .select { width: 100%; } .wb-view-toggle { order: 2; } .wb-board { grid-template-columns: repeat(4, 225px); } .wb-column-cards { min-height: 250px; } .wb-aside { grid-template-columns: 1fr; } .wb-quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); } .wb-panel { padding: 15px; } .wb-panel-heading h2 { font-size: 16px; } .wb-agenda li > a { min-height: 58px; } .wb-agenda-person small { font-size: 11px; } .wb-alert { font-size: 12px; } .wb-alert > span > span { display: none; } }
+@media (max-width: 1180px) { .wb-column-cards { max-height: 420px; } }
+@media (max-width: 760px) { .wb-column-cards { min-height: 0; max-height: min(380px, 50dvh); } }

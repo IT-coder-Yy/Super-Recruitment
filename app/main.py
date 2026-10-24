@@ -59,6 +59,7 @@ from app.models import (
 )
 from app.schemas import EvaluationCreate, EvaluationDimension, InterviewCreate, InterviewSlotCreate
 from app.seed import seed_database
+from app.workbench import appointment_time, build_workbench_context
 from app.services.auth import hash_password, normalize_username, verify_password
 from app.services.candidates import normalize_name, normalize_phone
 from app.services.exporter import export_recruitment_csv, export_recruitment_xlsx
@@ -111,6 +112,7 @@ app = FastAPI(
 )
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "app" / "static"), name="static")
 templates = Jinja2Templates(directory=ROOT_DIR / "app" / "templates")
+templates.env.filters["appointment_time"] = appointment_time
 
 PUBLIC_EXACT_PATHS = {"/health", "/login", "/register", "/favicon.ico"}
 PUBLIC_PATH_PREFIXES = ("/static/", "/schedule/", "/offer/")
@@ -800,6 +802,7 @@ def workbench(request: Request, session: Session = Depends(get_db)):
         rows=rows[:8],
         tasks=tasks,
         audits=audits,
+        **build_workbench_context(session, rows, summary),
     )
 
 

@@ -1606,10 +1606,14 @@ def schedule_application(
             select(Interview).where(Interview.confirmed_start_at.is_not(None))
         ).all()
     ]
-    available = [s for s in interview.slots if s.status == InterviewSlotStatus.AVAILABLE and appointment_time(s.start_at) > datetime.now(timezone.utc)]
-    slots = [] if available else generate_candidate_slots(
-        datetime.now(timezone.utc) + timedelta(hours=12),
-        datetime.now(timezone.utc) + timedelta(days=7),
+    # 其他候选人可能已占用旧时段；检查时段时按最新忙闲重新生成。
+    for old_slot in interview.slots:
+        if old_slot.status == InterviewSlotStatus.AVAILABLE:
+            old_slot.status = InterviewSlotStatus.RELEASED
+    now = datetime.now(timezone.utc)
+    slots = generate_candidate_slots(
+        now + timedelta(hours=12),
+        now + timedelta(days=7),
         busy,
         limit=5,
         minimum_notice_minutes=60,

@@ -19,7 +19,7 @@
   <article class="work-surface">
     <header class="surface-header"><div><h2 class="surface-title">数据导出与同步</h2><p class="card-subtitle">下载招聘数据，或查看腾讯文档 Mock 同步结果。</p></div></header>
     <div class="surface-body stack-sm">
-      <div class="button-row"><a class="button" href="/api/exports/recruitment.xlsx">下载 XLSX</a><a class="button" href="/api/exports/recruitment.csv">下载 CSV</a></div>
+      <div class="button-row"><a class="button" href="/api/exports/recruitment.xlsx?recruitment_type={{ recruitment_type }}">下载 XLSX</a><a class="button" href="/api/exports/recruitment.csv?recruitment_type={{ recruitment_type }}">下载 CSV</a></div>
       <div class="table-wrap"><table class="data-table"><thead><tr><th>类型</th><th>状态</th><th>行数</th><th>说明</th><th>时间</th></tr></thead><tbody>
         {% for run in exports %}
         <tr><td>{{ run.export_type }}</td><td><span class="status {% if run.status.value == 'success' %}status-success{% elif run.status.value == 'failed' %}status-danger{% else %}status-warning{% endif %}">{{ run.status.value }}</span></td><td>{{ run.row_count }}</td><td>{{ run.message or '—' }}</td><td>{{ run.created_at }}</td></tr>

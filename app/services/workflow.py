@@ -154,6 +154,9 @@ def get_or_create_job_version(
     values = _to_dict(data)
     platform = str(values["platform"]).strip().casefold()
     source_job_id = str(values["source_job_id"]).strip()
+    recruitment_type = values.get("recruitment_type", "autumn")
+    if recruitment_type not in {"autumn", "internship"}:
+        raise ValueError("招聘类型仅支持秋招或实习")
     version_hash = hash_jd_content(str(values["jd_raw"]))
 
     job = session.scalar(
@@ -167,6 +170,7 @@ def get_or_create_job_version(
             platform=platform,
             source_job_id=source_job_id,
             title=values["title"],
+            recruitment_type=recruitment_type,
             department=values.get("department"),
             owner=values.get("owner"),
         )
@@ -182,9 +186,17 @@ def get_or_create_job_version(
                 "platform": job.platform,
                 "source_job_id": job.source_job_id,
                 "title": job.title,
+                "recruitment_type": job.recruitment_type,
             },
         )
     else:
+        job = lock_record(session, Job, job.id)
+        if job.recruitment_type != recruitment_type:
+            if session.scalar(select(Application.id).where(Application.job_id == job.id).limit(1)):
+                raise ValueError("岗位已有投递，不能修改招聘类型，请新建对应岗位")
+            write_audit_log(session, actor=actor, action="job.recruitment_type_changed", entity_type="job", entity_id=job.id,
+                            before_data={"recruitment_type": job.recruitment_type}, after_data={"recruitment_type": recruitment_type})
+            job.recruitment_type = recruitment_type
         job.title = values["title"]
         job.department = values.get("department")
         job.owner = values.get("owner")

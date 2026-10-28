@@ -30,6 +30,7 @@ DEFAULT_RECRUITMENT_COLUMNS: tuple[ExportColumn, ...] = (
         ("candidate.name", "candidate_name", "name"),
     ),
     ExportColumn("job_title", "岗位", ("job.title", "job_title", "position")),
+    ExportColumn("recruitment_type", "招聘类型"),
     ExportColumn("status", "状态", ("application.status", "status")),
     ExportColumn("assessment", "测评结论"),
     ExportColumn("written", "笔试结论"),

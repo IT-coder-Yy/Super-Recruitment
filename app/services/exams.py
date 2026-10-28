@@ -14,6 +14,20 @@ KINDS = {"assessment": ("测评", ApplicationStatus.ASSESSMENT_PENDING, Applicat
 DELIVERED = {NotificationStatus.SENT, NotificationStatus.MOCKED}
 
 
+def advance_screening(session: Session, application_id: int, *, reason: str) -> Application:
+    application = lock_record(session, Application, application_id)
+    if application.status not in {ApplicationStatus.EVALUATION_REVIEW, ApplicationStatus.ON_HOLD}:
+        raise ValueError("初筛决定仅用于评估审核或暂缓阶段")
+    transition_application(session, application.id, ApplicationStatus.ASSESSMENT_PENDING,
+                           actor="HR", is_human_action=True, reason=reason)
+    if application.job.recruitment_type == "internship":
+        for kind, (label, _, _) in KINDS.items():
+            application = decide_exam(session, application.id, kind=kind, result="skipped",
+                                      note=f"实习流程自动跳过{label}",
+                                      version=(application.extra_data or {}).get("workflow_revision", 0))
+    return application
+
+
 def validate_resource(kind: str, title: str, url: str) -> None:
     parsed = urlsplit(url.strip())
     if kind not in KINDS or not title.strip() or len(title) > 200:

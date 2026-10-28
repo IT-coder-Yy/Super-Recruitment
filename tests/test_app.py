@@ -249,6 +249,7 @@ def test_local_resume_upload_parse_preview_and_confirm(
         headers=_csrf_headers(authenticated_client),
         data={
             "job_title": "AI 应用开发实习生",
+            "recruitment_type": "autumn",
             "jd_text": "负责 AI 应用开发，要求 Python、FastAPI、RAG。",
             "owner": "测试 HR",
         },
@@ -292,7 +293,7 @@ def test_candidate_supplement_and_delete(
     upload = authenticated_client.post(
         "/api/import/files",
         headers=_csrf_headers(authenticated_client),
-        data={"job_title": "后端开发实习生", "jd_text": "负责后端 API。"},
+        data={"job_title": "后端开发实习生", "jd_text": "负责后端 API。", "recruitment_type": "autumn"},
         files={"files": ("supplement.txt", resume, "text/plain")},
     )
     assert upload.status_code == 200
@@ -346,6 +347,7 @@ def test_local_resume_confirm_can_start_evaluation(
         data={
             "job_title": "AI 应用开发实习生",
             "jd_text": "负责 AI 应用开发，要求 Python、FastAPI、RAG。",
+            "recruitment_type": "autumn",
         },
         files={
             "files": (
@@ -438,6 +440,7 @@ def test_offer_and_onboarding_full_loop(
         data={
             "job_title": "后端开发实习生",
             "jd_text": "负责后端 API、自动化工作流和数据看板开发。",
+            "recruitment_type": "autumn",
             "owner": "测试 HR",
         },
         files={"files": ("offer-candidate.txt", resume, "text/plain")},

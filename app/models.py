@@ -333,6 +333,7 @@ class Job(TimestampMixin, Base):
     platform: Mapped[str] = mapped_column(String(50), nullable=False)
     source_job_id: Mapped[str] = mapped_column(String(120), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
+    recruitment_type: Mapped[str] = mapped_column(String(20), default="autumn", server_default="autumn", nullable=False)
     department: Mapped[str | None] = mapped_column(String(120))
     owner: Mapped[str | None] = mapped_column(String(120))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

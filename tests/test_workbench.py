@@ -55,7 +55,7 @@ def test_board_groups_active_applications_without_losing_processing_states(sessi
     assert [len(column["cards"]) for column in result["columns"]] == [2, 0, 0, 2, 1, 2]
     assert result["active_count"] == 7
     assert len(result["jobs"]) == 7
-    assert result["columns"][0]["cards"][0]["href"].endswith(f"?application_id={applications[0].id}")
+    assert result["columns"][0]["cards"][0]["href"].endswith(f"?recruitment_type=autumn&application_id={applications[0].id}")
     assert not session.dirty
 
 
@@ -151,7 +151,7 @@ def test_offer_and_onboarding_cards_use_actual_records(session):
     result = build_workbench_context(session, [row_for(offer_app), row_for(onboarding_app)], {})["workbench"]
     offer_card = next(c for c in result["columns"] if c["key"] == "offer")["cards"][0]
     assert offer_card["status_label"] == "待人工审批"
-    assert offer_card["action_href"] == f"/offers?offer_id={offers[0].id}"
+    assert offer_card["action_href"] == f"/offers?recruitment_type=autumn&offer_id={offers[0].id}"
     assert result["reminders"][2]["count"] == 1
     assert next(c for c in result["columns"] if c["key"] == "onboarding")["cards"][0]["note"] == "1 项入职事项待完成。"
 
@@ -162,7 +162,9 @@ def test_empty_workbench_renders_without_demo_counts(session):
     assert context["workbench"]["interviews"] == []
     assert all(step["count"] == 0 for step in context["workbench"]["flow"])
     environment = Environment(loader=FileSystemLoader("app/templates"), autoescape=True)
-    html = environment.get_template("workbench.html").render(**context, current_user={"username": "测试用户"}, csrf_token="test")
+    html = environment.get_template("workbench.html").render(**context, current_user={"username": "测试用户"}, csrf_token="test",
+        request={"url": {"path": "/"}}, recruitment_type="all",
+        recruitment_types={"all": "全部", "autumn": "秋招", "internship": "实习"})
     assert "今日暂无已确认面试" in html
     assert "暂无进行中的候选人" in html
     assert "我的候选人" not in html

@@ -603,13 +603,44 @@ def seed_database(session: Session) -> dict[str, int]:
         actor="mock_follow_up_agent",
     )
 
+    _seed_internship(session, now)
     session.flush()
     return {
-        "jobs": 4,
-        "job_versions": 5,
-        "candidates": 6,
-        "applications": 6,
+        "jobs": 5,
+        "job_versions": 6,
+        "candidates": 7,
+        "applications": 7,
     }
+
+
+def _seed_internship(session: Session, now: datetime) -> None:
+    job, version, _ = get_or_create_job_version(session, JobCreate(
+        platform="mock", source_job_id="mock-internship-backend-001",
+        title="后端开发实习生（实习流程演示）", recruitment_type="internship",
+        owner="虚构HR-赵老师", jd_raw="使用 Python、FastAPI 开发后端接口，每周实习四天。",
+    ), actor=SEED_ACTOR)
+    candidate, source, _ = ingest_candidate(session,
+        candidate_data=CandidateCreate(name="顾予安", phone="13800001207", email="yuan.gu@example.test"),
+        source_data=CandidateSourceCreate(
+            platform="mock", source_candidate_id="mock-internship-candidate-001",
+            source_application_id="mock-internship-application-001", channel="实习流程演示",
+            raw_resume="虚构简历：顾予安，使用 Python、FastAPI 开发课程预约接口，并使用 pytest 完成测试。",
+            raw_chat=[{"role": "candidate", "content": "每周可实习四天，下周可到岗。"}], captured_at=now,
+        ), actor=SEED_ACTOR)
+    application, created = create_application(session, ApplicationCreate(
+        candidate_id=candidate.id, job_id=job.id, job_version_id=version.id,
+        source_id=source.id, channel=source.channel, owner=job.owner, applied_at=now,
+    ), actor=SEED_ACTOR)
+    if not created:
+        return
+    _advance(session, application, [ApplicationStatus.PARSING, ApplicationStatus.PARSED,
+        ApplicationStatus.DEDUPLICATED, ApplicationStatus.EVALUATING, ApplicationStatus.EVALUATION_REVIEW])
+    create_evaluation(session, application.id, EvaluationCreate(
+        model="mock-evaluator-v1", prompt_version="seed-1",
+        dimensions=[EvaluationDimension(name="required_skills", score=85, weight=1,
+            jd_requirement="Python、FastAPI 后端开发", resume_evidence="虚构简历有接口开发与 pytest 测试经历", confidence=0.9)],
+        reason="实习演示：AI 辅助评估已完成，等待 HR 初筛；通过后自动跳过测评与笔试。",
+    ), actor="mock_evaluation_agent")
 
 
 def _seed_demo_user(session: Session) -> None:

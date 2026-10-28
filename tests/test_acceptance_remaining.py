@@ -43,7 +43,7 @@ def restart(factory, tmp_path):
 
 
 def upload(client, headers, text, job_id=None, filename='synthetic.txt'):
-    response = client.post('/api/import/files', headers=headers, data={'job_id': job_id} if job_id else {},
+    response = client.post('/api/import/files', headers=headers, data={'job_id': job_id} if job_id else {'recruitment_type': 'autumn'},
                            files={'files': (filename, text.encode())})
     assert response.status_code == 200, response.text
     task = response.json()['task']['id']
@@ -113,7 +113,7 @@ def test_mixed_batch_extractor_failure_retry_is_local(env, monkeypatch):
     client, headers, factory = env
     monkeypatch.setattr(LLMClient, 'generate_json', lambda *a, **k: pytest.fail('解析不得调用模型'))
     raw = '姓名：虚构批次\n手机号：13900000001\n邮箱：batch@example.test\n项目：Python API'
-    result = client.post('/api/import/files', headers=headers, files=[
+    result = client.post('/api/import/files', headers=headers, data={'recruitment_type': 'autumn'}, files=[
         ('files', ('good.txt', raw.encode())), ('files', ('broken.pdf', b'broken')),
         ('files', ('transient.txt', raw.replace('批次', '恢复').encode()))]).json()
     ids = [t['id'] for t in result['tasks']]
@@ -646,8 +646,8 @@ def test_beijing_midnight_dashboard_exports_and_stage_filters(env, monkeypatch):
     workbook = load_workbook(BytesIO(client.get('/api/exports/recruitment.xlsx').content), read_only=True)
     xlsx_rows = [[str(value) if value is not None else '' for value in row] for row in workbook.active.values]
     assert csv_rows == xlsx_rows
-    assert csv_rows[0] == ['候选人', '岗位', '状态', '测评结论', '笔试结论', '入职办理', '实际到岗日期', '评分', '负责人', '面试时间', '更新时间']
-    assert {row[0]: tuple(row[3:7]) for row in csv_rows[1:]} == expected
+    assert csv_rows[0] == ['候选人', '岗位', '招聘类型', '状态', '测评结论', '笔试结论', '入职办理', '实际到岗日期', '评分', '负责人', '面试时间', '更新时间']
+    assert {row[0]: tuple(row[4:8]) for row in csv_rows[1:]} == expected
     rows = client.get('/api/candidates').json()
     assert sum(row['status'] == 'joined' for row in rows) == after['status_counts']['joined'] == 1
     html = client.get('/candidates').text

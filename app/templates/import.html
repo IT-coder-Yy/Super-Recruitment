@@ -22,7 +22,8 @@
       </header>
       <div class="surface-body">
         <form id="resumeUploadForm" class="stack-sm" enctype="multipart/form-data">
-          <label class="field">选择已有岗位（重复投递请选同一岗位）<select class="select" name="job_id"><option value="">新建岗位</option>{% for job in jobs %}<option value="{{ job.id }}">#{{ job.id }} {{ job.title }}</option>{% endfor %}</select></label>
+          <label class="field">选择已有岗位（重复投递请选同一岗位）<select class="select" name="job_id"><option value="">新建岗位</option>{% for job in jobs %}<option value="{{ job.id }}" data-recruitment-type="{{ job.recruitment_type }}">#{{ job.id }} {{ job.title }} · {{ recruitment_types[job.recruitment_type] }}</option>{% endfor %}</select></label>
+          <label class="field">岗位招聘类型<select class="select" name="recruitment_type" required><option value="">请选择招聘类型</option><option value="autumn">秋招</option><option value="internship">实习</option></select><small class="muted">已有岗位自动继承类型；产生投递后不能切换。</small></label>
           <div class="form-grid">
             <div class="field">
               <label for="jobTitle">来源岗位</label>
@@ -151,6 +152,15 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const uploadForm = document.getElementById("resumeUploadForm");
+  const jobSelect = uploadForm.querySelector('[name="job_id"]');
+  const typeSelect = uploadForm.querySelector('[name="recruitment_type"]');
+  const syncJobType = () => {
+    typeSelect.disabled = Boolean(jobSelect.value);
+    typeSelect.required = !jobSelect.value;
+    typeSelect.value = jobSelect.selectedOptions[0].dataset.recruitmentType || "";
+  };
+  jobSelect.addEventListener("change", syncJobType);
+  syncJobType();
   const preview = document.getElementById("importPreview");
   let activeTask;
   const escapeHtml = (value) => String(value ?? "")

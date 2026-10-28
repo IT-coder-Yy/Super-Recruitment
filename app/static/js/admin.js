@@ -8,6 +8,7 @@
 
   if (csrfToken) {
     document.querySelectorAll("form").forEach((form) => {
+      if (form.method.toUpperCase() === "GET") return;
       if (form.querySelector('input[name="csrf_token"]')) return;
       const input = document.createElement("input");
       input.type = "hidden";

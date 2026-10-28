@@ -16,11 +16,11 @@
         <tbody>
           {% for offer in offers %}
           <tr {% if selected_offer and offer.id == selected_offer.id %}class="is-selected"{% endif %}>
-            <td class="workflow-description"><a href="/offers?offer_id={{ offer.id }}" {% if selected_offer and offer.id == selected_offer.id %}aria-current="true"{% endif %}>{{ offer.candidate_name }}</a><small>{{ offer.job_title }}</small><small>{{ offer.candidate_email or '邮箱缺失' }}</small></td>
+            <td class="workflow-description"><a href="/offers?offer_id={{ offer.id }}&recruitment_type={{ offer.application.job.recruitment_type }}" {% if selected_offer and offer.id == selected_offer.id %}aria-current="true"{% endif %}>{{ offer.candidate_name }}</a><small>{{ offer.job_title }} · {{ recruitment_types[offer.application.job.recruitment_type] }}</small><small>{{ offer.candidate_email or '邮箱缺失' }}</small></td>
             <td><span class="status {% if offer.status.value in ['accepted','approved','sent'] %}status-success{% elif offer.status.value in ['declined','expired'] %}status-danger{% else %}status-warning{% endif %}">{{ offer_labels.get(offer.status.value, offer.status.value) }}</span></td>
             <td class="action-cell">
               <div class="button-row">
-                <a class="button button-sm" href="/offers?offer_id={{ offer.id }}">查看</a>
+                <a class="button button-sm" href="/offers?offer_id={{ offer.id }}&recruitment_type={{ offer.application.job.recruitment_type }}">查看</a>
                 {% if offer.status.value == 'pending_approval' %}
                 <form method="post" action="/api/offers/{{ offer.id }}/approve"><input type="hidden" name="version" value="{{ (offer.terms or {}).get('revision',0) }}"><button class="button button-sm" type="submit">审批通过</button></form>
                 {% endif %}
@@ -32,7 +32,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="3"><div class="empty-state"><h3>暂无 Offer</h3><p>在面试反馈中选择“发 Offer”后，会自动进入这里。</p><a class="button" href="/interviews">查看面试进度</a></div></td></tr>
+          <tr><td colspan="3"><div class="empty-state"><h3>暂无 Offer</h3><p>在面试反馈中选择“发 Offer”后，会自动进入这里。</p><a class="button" href="/interviews?recruitment_type={{ recruitment_type }}">查看面试进度</a></div></td></tr>
           {% endfor %}
         </tbody>
       </table>

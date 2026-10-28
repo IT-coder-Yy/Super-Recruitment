@@ -16,7 +16,7 @@
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   {% macro nav_item(page, href, icon, label, count=0) %}
   {% set selected = active_page|default('') == page or (page == 'candidates' and active_page|default('') == 'candidate_detail') %}
-  <a class="nav-item{% if selected %} is-active{% endif %}" href="{{ href }}"{% if selected %} aria-current="page"{% endif %}>
+  <a class="nav-item{% if selected %} is-active{% endif %}" href="{{ href }}?recruitment_type={{ recruitment_type }}"{% if selected %} aria-current="page"{% endif %}>
     <svg class="nav-icon" aria-hidden="true"><use href="/static/icons.svg#{{ icon }}"/></svg><span>{{ label }}</span>
     {% if count %}<span class="nav-badge">{{ count }}</span>{% endif %}
   </a>
@@ -38,7 +38,7 @@
         <p class="nav-label">招聘</p>
         {{ nav_item('candidates', '/candidates', 'users', '候选人') }}
         {{ nav_item('evaluations', '/evaluations', 'file', '评估复核', pending_evaluations|default(0)) }}
-        {{ nav_item('exams', '/exams', 'checklist', '测评与笔试') }}
+        {% if recruitment_type != 'internship' %}{{ nav_item('exams', '/exams', 'checklist', '测评与笔试') }}{% endif %}
         {{ nav_item('interviews', '/interviews', 'calendar', '面试排期') }}
         {{ nav_item('offers', '/offers', 'audit', 'Offer') }}
         {{ nav_item('onboarding', '/onboarding', 'checklist', '入职跟进') }}
@@ -78,6 +78,13 @@
       </header>
       <main class="page-content" id="main-content" tabindex="-1">
         <div class="page-heading"><h1>{% block page_title %}招聘工作台{% endblock %}</h1><p>{% block page_subtitle %}{% endblock %}</p></div>
+        {% if active_page in ['workbench','dashboard','candidates','evaluations','interviews','offers','onboarding','follow_ups','exams'] %}
+        <form class="toolbar" method="get" action="{{ request.url.path }}" aria-label="招聘类型筛选">
+          <label for="recruitment-type">招聘类型</label>
+          <select class="select" id="recruitment-type" name="recruitment_type" style="width:auto">{% for value,label in recruitment_types.items() %}<option value="{{ value }}" {% if recruitment_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          <button class="button" type="submit">切换</button>
+        </form>
+        {% endif %}
         {% block content %}{% endblock %}
       </main>
     </div>

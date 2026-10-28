@@ -101,7 +101,7 @@ def test_batch_import_correction_and_table_docx(env):
         cells = document.add_table(rows=1, cols=2).rows[0].cells
         cells[0].text, cells[1].text = label + "：", value
     docx = BytesIO(); document.save(docx)
-    response = client.post("/api/import/files", headers=headers, files=[
+    response = client.post("/api/import/files", headers=headers, data={"recruitment_type": "autumn"}, files=[
         ("files", ("missing.txt", "姓名：虚构缺字段\n手机号：13800130002\n项目：Python".encode(), "text/plain")),
         ("files", ("table.docx", docx.getvalue(), "application/octet-stream")),
         ("files", ("empty.txt", b"", "text/plain")),
@@ -133,7 +133,7 @@ def test_empty_or_broken_file_never_becomes_resume(env, filename, content):
     if content is None:
         pdf = PdfWriter(); pdf.add_blank_page(width=200, height=200)
         stream = BytesIO(); pdf.write(stream); content = stream.getvalue()
-    result = client.post("/api/import/files", headers=headers, files={"files": (filename, content)})
+    result = client.post("/api/import/files", headers=headers, data={"recruitment_type": "autumn"}, files={"files": (filename, content)})
     task_id = result.json()["task"]["id"]
     result = client.post(f"/api/import/tasks/{task_id}/parse", headers=headers)
     assert result.json()["task"]["status"] == "failed"
@@ -375,7 +375,7 @@ def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
     engine.dispose()
 
     with sqlite3.connect(database) as connection:
-        for table, column in [("evaluations", "input_snapshot"), ("evaluations", "is_stale"), ("offers", "terms"), ("offer_approvals", "snapshot")]:
+        for table, column in [("jobs", "recruitment_type"), ("evaluations", "input_snapshot"), ("evaluations", "is_stale"), ("offers", "terms"), ("offer_approvals", "snapshot")]:
             connection.execute(f'ALTER TABLE {table} DROP COLUMN {column}')
         connection.execute("DROP TABLE app_schema_versions")
         connection.execute("DELETE FROM application_sources")
@@ -388,6 +388,7 @@ def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
     with Session(engine) as session:
         assert session.scalar(select(func.count(ApplicationSource.source_id))) == 3
         assert session.scalar(select(Offer)).status == OfferStatus.APPROVED
+        assert set(session.scalars(select(Job.recruitment_type))) == {"autumn"}
         assert session.get(Application, second.id).status == ApplicationStatus.NEXT_ROUND
         old_joined = session.get(Application, joined.id)
         assert old_joined.status == ApplicationStatus.JOINED and old_joined.candidate.email is None

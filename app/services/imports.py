@@ -81,11 +81,16 @@ def create_file_import_task(
     channel: str | None = None,
     owner: str | None = None,
     job_id: int | None = None,
+    recruitment_type: str = "autumn",
 ) -> ImportTask:
     if len(uploads) != 1:
         raise ValueError("每个导入任务只能包含一份简历")
-    if job_id is not None and session.get(Job, job_id) is None:
+    job = session.get(Job, job_id) if job_id is not None else None
+    if job_id is not None and job is None:
         raise ValueError("所选岗位不存在")
+    recruitment_type = job.recruitment_type if job else recruitment_type
+    if recruitment_type not in {"autumn", "internship"}:
+        raise ValueError("请选择秋招或实习招聘类型")
 
     task = ImportTask(
         source_type="file",
@@ -97,6 +102,7 @@ def create_file_import_task(
         owner=_clean(owner, limit=120) or "HR",
         summary_json={
             "job_id": job_id,
+            "recruitment_type": recruitment_type,
             "file_count": len(uploads),
             "supported_types": sorted(SUPPORTED_EXTENSIONS),
             "message": "文件已上传，尚未解析；点击开始解析后才会生成入库预览。",
@@ -310,6 +316,7 @@ def confirm_import_task(
             platform="file",
             source_job_id=f"local-import-{task.id}",
             title=job_title,
+            recruitment_type=(task.summary_json or {}).get("recruitment_type", "autumn"),
             department=None,
             owner=task.owner,
             jd_raw=jd_raw,
@@ -419,6 +426,7 @@ def serialize_import_task(
         "status": task.status.value,
         "status_label": IMPORT_STATUS_LABELS.get(task.status.value, task.status.value),
         "job_title": task.job_title or (task.preview_json or {}).get("job", {}).get("title") or "待补充岗位",
+        "recruitment_type": (task.summary_json or {}).get("recruitment_type", "autumn"),
         "channel": task.channel or "本地上传",
         "owner": task.owner or "HR",
         "candidate_name": candidate.get("name") or "待解析",

@@ -23,7 +23,7 @@
           </div>
         </div>
       </div>
-      {% if rows %}<nav class="application-switcher" aria-label="选择投递岗位">{% for row in rows %}<a class="{% if current and current.id == row.id %}is-active{% endif %}" href="/candidates/{{ candidate.id }}?application_id={{ row.id }}" {% if current and current.id == row.id %}aria-current="true"{% endif %}><strong>{{ row.job_title }}</strong><span>{{ row.status_label }}</span></a>{% endfor %}</nav>{% endif %}
+      {% if rows %}<nav class="application-switcher" aria-label="选择投递岗位">{% for row in rows %}<a class="{% if current and current.id == row.id %}is-active{% endif %}" href="/candidates/{{ candidate.id }}?application_id={{ row.id }}" {% if current and current.id == row.id %}aria-current="true"{% endif %}><strong>{{ row.job_title }}</strong><span>{{ row.recruitment_type_label }} · {{ row.status_label }}</span></a>{% endfor %}</nav>{% endif %}
     </section>
 
     <details class="work-surface workflow-disclosure">
@@ -186,7 +186,7 @@
           <div class="info-grid">
             <div class="info-item"><span>面试时间</span><strong>{{ current.interview_time if current and current.interview_time else '未确认' }}</strong></div>
             <div class="info-item"><span>会议状态</span><strong>{% if current and current.meeting_url %}<a href="{{ current.meeting_url }}">Mock 腾讯会议</a>{% else %}未创建{% endif %}</strong></div>
-            <div class="info-item"><span>面试安排</span><strong><a href="/interviews">查看排期与反馈</a></strong></div>
+            <div class="info-item"><span>面试安排</span><strong><a href="/interviews?recruitment_type={{ current.recruitment_type if current else recruitment_type }}">查看排期与反馈</a></strong></div>
           </div>
         </section>
 
@@ -218,7 +218,7 @@
       <header class="surface-header">
         <div>
           <h2 class="surface-title">{{ row.job_title }}</h2>
-          <p class="card-subtitle">{{ row.channel }} · {{ row.owner }}</p>
+          <p class="card-subtitle">{{ row.recruitment_type_label }} · {{ row.channel }} · {{ row.owner }}</p>
         </div>
         <span class="status status-primary">{{ row.status_label }}</span>
       </header>
@@ -227,13 +227,13 @@
           <p>AI 只提供辅助意见，最终决定由 HR 或面试官作出。</p>
           {% if row.evaluation_stale %}<p class="notice notice-warning">资料或 JD 已更新，旧评估已过期，请重评后再复核。</p>{% endif %}
           {% if row.evaluation_attempt and row.evaluation_attempt.status == 'failed' %}<p class="notice notice-warning">评估尝试 #{{ row.evaluation_attempt.id }} 失败：{{ row.evaluation_attempt.error }}。下方保留原评估，可重新评估。</p>{% endif %}
-          <p class="muted">测评：{{ row.exam_decisions.get('assessment',{}).get('result','历史未记录 / 未办理') }}；笔试：{{ row.exam_decisions.get('written',{}).get('result','历史未记录 / 未办理') }}</p>
+          <p class="muted">测评：{{ {'passed':'通过','failed':'不通过','skipped':'跳过'}.get(row.exam_decisions.get('assessment',{}).get('result'), '历史未记录 / 未办理') }}；笔试：{{ {'passed':'通过','failed':'不通过','skipped':'跳过'}.get(row.exam_decisions.get('written',{}).get('result'), '历史未记录 / 未办理') }}</p>
           <div class="button-row">
             <form method="post" action="/api/applications/{{ row.id }}/evaluate"><button class="button" type="submit">运行 AI 评估</button></form>
             {% if row.status in ['evaluation_review','on_hold'] %}
             <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="on_hold"><input type="hidden" name="reason" value="HR 暂缓"><button class="button" type="submit">暂缓</button></form>
             <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="rejected"><input type="hidden" name="reason" value="HR 人工淘汰"><button class="button button-danger" type="submit" data-confirm="淘汰候选人需要人工确认，是否继续？">淘汰</button></form>
-            <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="assessment_pending"><input type="hidden" name="reason" value="HR 人工确认进入测评"><button class="button button-primary" type="submit">进入测评</button></form>
+            <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="{{ 'interview_pending' if row.recruitment_type == 'internship' else 'assessment_pending' }}"><input type="hidden" name="reason" value="HR 人工确认初筛通过"><button class="button button-primary" type="submit">{{ '进入面试' if row.recruitment_type == 'internship' else '进入测评' }}</button></form>
             {% elif row.status in ['assessment_pending','written_pending'] %}
             <a class="button button-primary" href="/exams?application_id={{ row.id }}">发放试卷 / 记录结论</a>
             {% elif row.status in ['interview_pending','next_round','scheduling'] %}

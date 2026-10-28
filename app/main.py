@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -82,8 +82,6 @@ from app.services.offers import (
     return_offer,
     missing_offer_terms,
     create_offer,
-    list_offers,
-    list_onboarding_tasks,
     notify_internal,
     record_export_run,
     respond_offer,
@@ -177,6 +175,33 @@ STATUS_LABELS = {
     "onboarding": "待入职",
     "joined": "已入职",
 }
+
+RECRUITMENT_TYPES = {"all": "全部", "autumn": "秋招", "internship": "实习"}
+
+
+def _recruitment_type(request: Request) -> str:
+    value = request.query_params.get("recruitment_type", request.session.get("recruitment_type", "all"))
+    if value not in RECRUITMENT_TYPES:
+        raise HTTPException(422, "招聘类型必须为全部、秋招或实习")
+    if "recruitment_type" in request.query_params and not request.url.path.startswith("/api/"):
+        request.session["recruitment_type"] = value
+    return value
+
+
+def _application_ids(recruitment_type: str):
+    statement = select(Application.id)
+    if recruitment_type != "all":
+        statement = statement.join(Job).where(Job.recruitment_type == recruitment_type)
+    return statement
+
+
+def _followup_scope(application_ids):
+    return or_(
+        (FollowUpTask.target_type == "application") & FollowUpTask.target_id.in_(application_ids),
+        (FollowUpTask.target_type == "offer") & FollowUpTask.target_id.in_(select(Offer.id).where(Offer.application_id.in_(application_ids))),
+        (FollowUpTask.target_type == "onboarding") & FollowUpTask.target_id.in_(select(OnboardingTask.id).where(OnboardingTask.application_id.in_(application_ids))),
+        (FollowUpTask.target_type == "interview") & FollowUpTask.target_id.in_(select(Interview.id).where(Interview.application_id.in_(application_ids))),
+    )
 
 
 def startup() -> None:
@@ -287,6 +312,8 @@ def _application_row(application: Application) -> dict[str, Any]:
         "phone": application.candidate.phone or "未提供",
         "email": application.candidate.email or "未提供",
         "job_title": application.job.title,
+        "recruitment_type": application.job.recruitment_type,
+        "recruitment_type_label": RECRUITMENT_TYPES[application.job.recruitment_type],
         "status": application.status.value,
         "status_label": STATUS_LABELS.get(application.status.value, application.status.value),
         "owner": application.owner or "未分配",
@@ -308,9 +335,9 @@ def _application_row(application: Application) -> dict[str, Any]:
     }
 
 
-def _application_rows(session: Session) -> list[dict[str, Any]]:
+def _application_rows(session: Session, recruitment_type: str = "all") -> list[dict[str, Any]]:
     applications = session.scalars(
-        select(Application).order_by(desc(Application.updated_at))
+        select(Application).where(Application.id.in_(_application_ids(recruitment_type))).order_by(desc(Application.updated_at))
     ).unique().all()
     return [_application_row(item) for item in applications]
 
@@ -433,12 +460,13 @@ def _profile_experiences(value: Any) -> list[dict[str, str]]:
     return result
 
 
-def _dashboard_data(session: Session) -> dict[str, Any]:
-    rows = _application_rows(session)
+def _dashboard_data(session: Session, recruitment_type: str = "all") -> dict[str, Any]:
+    rows = _application_rows(session, recruitment_type)
+    application_ids = [row["id"] for row in rows]
     statuses = Counter(row["status"] for row in rows)
     channels = Counter(row["channel"] for row in rows)
     jobs = Counter(row["job_title"] for row in rows)
-    total_candidates = session.scalar(select(func.count(Candidate.id))) or 0
+    total_candidates = len({row["candidate_id"] for row in rows}) if recruitment_type != "all" else session.scalar(select(func.count(Candidate.id))) or 0
     reached = {row["id"]: {row["status"]} for row in rows}
     for log in session.scalars(select(AuditLog).where(AuditLog.entity_type == "application", AuditLog.action == "application.status_changed")):
         if log.entity_id in reached:
@@ -448,21 +476,18 @@ def _dashboard_data(session: Session) -> dict[str, Any]:
     overdue = session.scalar(
         select(func.count(FollowUpTask.id)).where(
             FollowUpTask.status == FollowUpStatus.OPEN,
-            FollowUpTask.due_at <= datetime.now(timezone.utc)
+            FollowUpTask.due_at <= datetime.now(timezone.utc),
+            _followup_scope(application_ids) if recruitment_type != "all" else True,
         )
     ) or 0
-    total_offers = session.scalar(select(func.count(Offer.id))) or 0
-    accepted_offers = session.scalar(
-        select(func.count(Offer.id)).where(Offer.status == OfferStatus.ACCEPTED)
-    ) or 0
-    sent_offers = session.scalar(
-        select(func.count(Offer.id)).where(
-            Offer.status.in_([OfferStatus.SENT, OfferStatus.ACCEPTED, OfferStatus.DECLINED])
-        )
-    ) or 0
+    offers = session.scalars(select(Offer).where(Offer.application_id.in_(application_ids))).all()
+    total_offers = len(offers)
+    accepted_offers = sum(offer.status == OfferStatus.ACCEPTED for offer in offers)
+    sent_offers = sum(offer.status in {OfferStatus.SENT, OfferStatus.ACCEPTED, OfferStatus.DECLINED} for offer in offers)
     onboarding_open = session.scalar(
         select(func.count(OnboardingTask.id)).where(
-            OnboardingTask.status == OnboardingStatus.OPEN
+            OnboardingTask.status == OnboardingStatus.OPEN,
+            OnboardingTask.application_id.in_(application_ids),
         )
     ) or 0
     notification_failed = session.scalar(
@@ -480,14 +505,15 @@ def _dashboard_data(session: Session) -> dict[str, Any]:
     exam_counts = {}
     later_stages = {"interview_pending", "scheduling", "interview_confirmed", "interviewed", "feedback_pending", "next_round", "offer_pending", "offer_sent", "offer_accepted", "offer_declined", "onboarding", "joined", "onboarding_withdrawn"}
     for kind in ("assessment", "written"):
-        sent = {d.application_id for d in session.scalars(select(ExamDispatch).where(ExamDispatch.kind == kind))
+        sent = {d.application_id for d in session.scalars(select(ExamDispatch).where(ExamDispatch.kind == kind, ExamDispatch.application_id.in_(application_ids)))
                 if (n := exams.dispatch_notification(session, d.id)) and n.status in exams.DELIVERED}
         exam_counts[kind] = {
             "sent": len(sent),
             **{result: sum(row["exam_decisions"].get(kind, {}).get("result") == result for row in rows) for result in ("passed", "failed", "skipped")},
             "historical_unrecorded": sum(not row["exam_decisions"].get(kind) and row["status"] in later_stages for row in rows),
         }
-    return {
+    result = {
+        "recruitment_type": recruitment_type,
         "exam_counts": exam_counts,
         "total_candidates": total_candidates,
         "new_today": sum(
@@ -511,6 +537,11 @@ def _dashboard_data(session: Session) -> dict[str, Any]:
         "jobs": [{"name": name, "count": count} for name, count in jobs.most_common()],
         **funnel,
     }
+    if recruitment_type == "all":
+        result["by_recruitment_type"] = {
+            kind: _dashboard_data(session, kind) for kind in ("autumn", "internship")
+        }
+    return result
 
 
 def _offer_detail(session: Session, offer: Offer | None) -> dict[str, Any] | None:
@@ -582,8 +613,11 @@ def _candidate_manual_snapshot(data: dict[str, Any] | None) -> dict[str, Any]:
 def _base_context(
     request: Request, session: Session, active_page: str
 ) -> dict[str, Any]:
-    summary = _dashboard_data(session)
+    recruitment_type = _recruitment_type(request)
+    summary = _dashboard_data(session, recruitment_type)
     return {
+        "recruitment_type": recruitment_type,
+        "recruitment_types": RECRUITMENT_TYPES,
         "active_page": active_page,
         "pending_evaluations": summary["pending_review"],
         "overdue_count": summary["overdue"],
@@ -796,8 +830,9 @@ def health() -> dict[str, str]:
 
 @app.get("/")
 def workbench(request: Request, session: Session = Depends(get_db)):
-    summary = _dashboard_data(session)
-    rows = _application_rows(session)
+    recruitment_type = _recruitment_type(request)
+    summary = _dashboard_data(session, recruitment_type)
+    rows = _application_rows(session, recruitment_type)
     tasks = session.scalars(
         select(FollowUpTask)
         .where(FollowUpTask.status == FollowUpStatus.OPEN)
@@ -816,7 +851,7 @@ def workbench(request: Request, session: Session = Depends(get_db)):
         rows=rows[:8],
         tasks=tasks,
         audits=audits,
-        **build_workbench_context(session, rows, summary),
+        **build_workbench_context(session, rows, summary, recruitment_type=recruitment_type),
     )
 
 
@@ -827,7 +862,7 @@ def dashboard(request: Request, session: Session = Depends(get_db)):
         session,
         "dashboard.html",
         "dashboard",
-        summary=_dashboard_data(session),
+        summary=_dashboard_data(session, _recruitment_type(request)),
     )
 
 
@@ -838,7 +873,7 @@ def candidates_page(request: Request, session: Session = Depends(get_db)):
         session,
         "candidates.html",
         "candidates",
-        rows=_application_rows(session),
+        rows=_application_rows(session, _recruitment_type(request)),
     )
 
 
@@ -1002,7 +1037,7 @@ def mock_platform_page(request: Request, session: Session = Depends(get_db)):
 def evaluations_page(request: Request, session: Session = Depends(get_db)):
     rows = [
         row
-        for row in _application_rows(session)
+        for row in _application_rows(session, _recruitment_type(request))
         if row["evaluation_id"] or row["status"] in {"captured", "parsed", "deduplicated", "evaluation_review"}
     ]
     return _render(request, session, "evaluations.html", "evaluations", rows=rows)
@@ -1011,7 +1046,7 @@ def evaluations_page(request: Request, session: Session = Depends(get_db)):
 @app.get("/interviews")
 def interviews_page(request: Request, session: Session = Depends(get_db)):
     interviews = session.scalars(
-        select(Interview).order_by(desc(Interview.created_at))
+        select(Interview).where(Interview.application_id.in_(_application_ids(_recruitment_type(request)))).order_by(desc(Interview.created_at))
     ).unique().all()
     base_url = str(request.base_url).rstrip("/")
     booking_urls = {
@@ -1035,7 +1070,8 @@ def offers_page(
     offer_id: int | None = None,
     session: Session = Depends(get_db),
 ):
-    offers = list_offers(session)
+    offers = session.scalars(select(Offer).where(Offer.application_id.in_(
+        _application_ids(_recruitment_type(request)))).order_by(desc(Offer.created_at)).limit(200)).all()
     selected_offer = (
         next((item for item in offers if item.id == offer_id), None)
         if offer_id
@@ -1054,13 +1090,14 @@ def offers_page(
 
 @app.get("/onboarding")
 def onboarding_page(request: Request, session: Session = Depends(get_db)):
+    application_ids = _application_ids(_recruitment_type(request))
     return _render(
         request,
         session,
         "onboarding.html",
         "onboarding",
-        tasks=list_onboarding_tasks(session),
-        applications=session.scalars(select(Application).where(Application.status.in_([ApplicationStatus.ONBOARDING, ApplicationStatus.JOINED, ApplicationStatus.ONBOARDING_WITHDRAWN]))).all(),
+        tasks=session.scalars(select(OnboardingTask).where(OnboardingTask.application_id.in_(application_ids)).order_by(OnboardingTask.due_at).limit(200)).all(),
+        applications=session.scalars(select(Application).where(Application.id.in_(application_ids), Application.status.in_([ApplicationStatus.ONBOARDING, ApplicationStatus.JOINED, ApplicationStatus.ONBOARDING_WITHDRAWN]))).all(),
     )
 
 
@@ -1084,8 +1121,9 @@ def notifications_page(request: Request, session: Session = Depends(get_db)):
 
 @app.get("/follow-ups")
 def followups_page(request: Request, session: Session = Depends(get_db)):
+    recruitment_type = _recruitment_type(request)
     tasks = session.scalars(
-        select(FollowUpTask).order_by(FollowUpTask.status, FollowUpTask.due_at)
+        select(FollowUpTask).where(_followup_scope(_application_ids(recruitment_type)) if recruitment_type != "all" else True).order_by(FollowUpTask.status, FollowUpTask.due_at)
     ).all()
     return _render(
         request, session, "follow_ups.html", "follow_ups", tasks=tasks
@@ -1252,12 +1290,15 @@ async def upload_import_files(
     request: Request,
     files: list[UploadFile] = File(...),
     job_id: int | None = Form(None),
+    recruitment_type: str | None = Form(None),
     job_title: str = Form(""),
     jd_text: str = Form(""),
     channel: str = Form("本地上传"),
     owner: str = Form("HR"),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    if job_id is None and recruitment_type not in {"autumn", "internship"}:
+        raise HTTPException(422, "新建岗位必须选择秋招或实习")
     tasks, errors = [], []
     for file in files:
         stored = None
@@ -1270,6 +1311,7 @@ async def upload_import_files(
             task = create_file_import_task(
                 session, uploads=[stored], operator_id=request.session.get("user_id"),
                 job_title=job_title, jd_text=jd_text, channel=channel, owner=owner, job_id=job_id,
+                recruitment_type=recruitment_type or "autumn",
             )
             session.commit()
             tasks.append(serialize_import_task(task))
@@ -1389,8 +1431,8 @@ def capture_mock_connector(session: Session = Depends(get_db)) -> dict[str, Any]
 
 
 @app.get("/api/candidates")
-def candidates_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    return _application_rows(session)
+def candidates_api(request: Request, session: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    return _application_rows(session, _recruitment_type(request))
 
 
 @app.get("/api/candidates/{candidate_id}")
@@ -1467,19 +1509,21 @@ def decide_application(
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        if status not in {"assessment_pending", "on_hold", "rejected"}:
+        if status not in {"assessment_pending", "interview_pending", "on_hold", "rejected"}:
             raise ValueError("请通过当前阶段的专用操作推进，不能跳过测评、笔试或入职确认")
         current = lock_record(session, Application, application_id)
         if current.status not in {ApplicationStatus.EVALUATION_REVIEW, ApplicationStatus.ON_HOLD}:
             raise ValueError("通用初筛决定仅用于评估审核或暂缓阶段，请使用当前阶段的专用操作")
-        application = transition_application(
-            session,
-            application_id,
-            ApplicationStatus(status),
-            actor="本地管理员",
-            is_human_action=True,
-            reason=reason or "HR 人工决定",
-        )
+        if status in {"assessment_pending", "interview_pending"}:
+            expected = "interview_pending" if current.job.recruitment_type == "internship" else "assessment_pending"
+            if status != expected:
+                raise ValueError("请按岗位招聘类型推进初筛：实习进入面试，秋招进入测评")
+            application = exams.advance_screening(session, application_id, reason=reason or "HR 人工确认初筛通过")
+        else:
+            application = transition_application(
+                session, application_id, ApplicationStatus(status), actor="本地管理员",
+                is_human_action=True, reason=reason or "HR 人工决定",
+            )
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     except (ValueError, HumanActionRequired) as exc:
@@ -1764,8 +1808,9 @@ def send_offer_api(
 
 
 @app.get("/api/offers")
-def offers_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    offers = list_offers(session, limit=200)
+def offers_api(request: Request, session: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    offers = session.scalars(select(Offer).where(Offer.application_id.in_(
+        _application_ids(_recruitment_type(request)))).order_by(desc(Offer.created_at)).limit(200)).all()
     return [
         {
             "id": offer.id,
@@ -1774,6 +1819,7 @@ def offers_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
             "candidate_name": offer.candidate_name,
             "candidate_email": offer.candidate_email,
             "job_title": offer.job_title,
+            "recruitment_type": offer.application.job.recruitment_type,
             "sent_at": offer.sent_at.isoformat() if offer.sent_at else None,
             "candidate_token": offer.candidate_token,
             "created_at": offer.created_at.isoformat(),
@@ -1833,14 +1879,16 @@ def complete_onboarding_task_api(
 
 
 @app.get("/api/onboarding")
-def onboarding_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    tasks = list_onboarding_tasks(session, limit=200)
+def onboarding_api(request: Request, session: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    tasks = session.scalars(select(OnboardingTask).where(OnboardingTask.application_id.in_(
+        _application_ids(_recruitment_type(request)))).order_by(OnboardingTask.due_at).limit(200)).all()
     return [
         {
             "id": task.id,
             "offer_id": task.offer_id,
             "application_id": task.offer.application_id if task.offer else None,
             "candidate_name": task.offer.candidate_name if task.offer else "",
+            "recruitment_type": task.offer.application.job.recruitment_type,
             "title": task.title,
             "status": task.status.value,
             "due_at": task.due_at.isoformat() if task.due_at else None,
@@ -1851,8 +1899,8 @@ def onboarding_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
 
 
 @app.post("/api/sync/tencent-docs")
-def sync_tencent_docs_api(session: Session = Depends(get_db)) -> dict[str, Any]:
-    rows = _export_rows(session)
+def sync_tencent_docs_api(request: Request, session: Session = Depends(get_db)) -> dict[str, Any]:
+    rows = _export_rows(session, _recruitment_type(request))
     run = record_export_run(
         session,
         export_type="tencent_docs",
@@ -2006,8 +2054,9 @@ def confirm_booking(
 
 
 @app.get("/api/follow-ups")
-def followups_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    tasks = session.scalars(select(FollowUpTask).order_by(FollowUpTask.due_at)).all()
+def followups_api(request: Request, session: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    recruitment_type = _recruitment_type(request)
+    tasks = session.scalars(select(FollowUpTask).where(_followup_scope(_application_ids(recruitment_type)) if recruitment_type != "all" else True).order_by(FollowUpTask.due_at)).all()
     return [
         {
             "id": task.id,
@@ -2031,9 +2080,9 @@ def resolve_followup(task_id: int, session: Session = Depends(get_db)) -> dict[s
     return {"ok": True, "id": task.id, "status": task.status.value}
 
 
-def _export_rows(session: Session) -> list[dict[str, Any]]:
+def _export_rows(session: Session, recruitment_type: str = "all") -> list[dict[str, Any]]:
     records = []
-    for row in _application_rows(session):
+    for row in _application_rows(session, recruitment_type):
         application = session.get(Application, row["id"])
         latest_offer = max(application.offers, key=lambda item: item.created_at) if application and application.offers else None
         onboarding_open = (
@@ -2044,6 +2093,7 @@ def _export_rows(session: Session) -> list[dict[str, Any]]:
         records.append({
             "candidate_name": row["candidate_name"],
             "job_title": row["job_title"],
+            "recruitment_type": row["recruitment_type_label"],
             "status": row["status_label"],
             "total_score": row["score"],
             "owner": row["owner"],
@@ -2061,8 +2111,8 @@ def _export_rows(session: Session) -> list[dict[str, Any]]:
 
 
 @app.get("/api/exports/recruitment.xlsx")
-def export_xlsx_api(session: Session = Depends(get_db)) -> Response:
-    rows = _export_rows(session)
+def export_xlsx_api(request: Request, session: Session = Depends(get_db)) -> Response:
+    rows = _export_rows(session, _recruitment_type(request))
     content = export_recruitment_xlsx(rows)
     record_export_run(
         session,
@@ -2081,8 +2131,8 @@ def export_xlsx_api(session: Session = Depends(get_db)) -> Response:
 
 
 @app.get("/api/exports/recruitment.csv")
-def export_csv_api(session: Session = Depends(get_db)) -> Response:
-    rows = _export_rows(session)
+def export_csv_api(request: Request, session: Session = Depends(get_db)) -> Response:
+    rows = _export_rows(session, _recruitment_type(request))
     content = export_recruitment_csv(rows)
     record_export_run(
         session,
@@ -2101,8 +2151,8 @@ def export_csv_api(session: Session = Depends(get_db)) -> Response:
 
 
 @app.get("/api/dashboard/summary")
-def dashboard_summary(session: Session = Depends(get_db)) -> dict[str, Any]:
-    return _dashboard_data(session)
+def dashboard_summary(request: Request, session: Session = Depends(get_db)) -> dict[str, Any]:
+    return _dashboard_data(session, _recruitment_type(request))
 
 
 @app.get("/api/audit")
@@ -2132,19 +2182,27 @@ from app.services import exams
 
 @app.get("/exams")
 def exams_page(request: Request, application_id: int | None = None, resource_id: int | None = None, session: Session = Depends(get_db)):
+    recruitment_type = _recruitment_type(request)
+    application_ids = _application_ids(recruitment_type)
+    job_scope = True if recruitment_type == "all" else Job.recruitment_type == recruitment_type
+    resource_scope = ExamResource.job_id.in_(select(Job.id).where(job_scope))
     application = session.get(Application, application_id) if application_id else None
     resource = session.get(ExamResource, resource_id) if resource_id else None
+    if application and recruitment_type != "all" and application.job.recruitment_type != recruitment_type:
+        application = None
+    if resource and recruitment_type != "all" and resource.job_id not in session.scalars(select(Job.id).where(job_scope)).all():
+        resource = None
     preview, preview_error = None, None
     if application and resource:
         try:
             preview = exams.preview_dispatch(application, resource)
         except ValueError as exc:
             preview_error = str(exc)
-    dispatches = session.scalars(select(ExamDispatch).order_by(ExamDispatch.id.desc())).all()
+    dispatches = session.scalars(select(ExamDispatch).where(ExamDispatch.application_id.in_(application_ids)).order_by(ExamDispatch.id.desc())).all()
     return _render(request, session, "exams.html", "exams", kinds=exams.KINDS,
-        resources=session.scalars(select(ExamResource).order_by(ExamResource.id.desc())).all(),
-        jobs=session.scalars(select(Job).order_by(Job.id)).all(),
-        applications=session.scalars(select(Application).where(Application.status.in_([ApplicationStatus.ASSESSMENT_PENDING, ApplicationStatus.WRITTEN_PENDING]))).all(),
+        resources=session.scalars(select(ExamResource).where(resource_scope if recruitment_type != "all" else True).order_by(ExamResource.id.desc())).all(),
+        jobs=session.scalars(select(Job).where(job_scope).order_by(Job.id)).all(),
+        applications=session.scalars(select(Application).where(Application.id.in_(application_ids), Application.status.in_([ApplicationStatus.ASSESSMENT_PENDING, ApplicationStatus.WRITTEN_PENDING]))).all(),
         selected_application=application, preview=preview, preview_error=preview_error, resource_request_key=secrets.token_hex(16),
         dispatches=[{"record": d, "notification": exams.dispatch_notification(session, d.id)} for d in dispatches])
 

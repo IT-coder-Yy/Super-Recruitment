@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -73,6 +73,7 @@ class JobCreate(BaseModel):
     platform: str = Field(min_length=1, max_length=50)
     source_job_id: str = Field(min_length=1, max_length=120)
     title: str = Field(min_length=1, max_length=200)
+    recruitment_type: Literal["autumn", "internship"] = "autumn"
     department: str | None = Field(default=None, max_length=120)
     owner: str | None = Field(default=None, max_length=120)
     jd_raw: str = Field(min_length=1)
@@ -95,6 +96,7 @@ class JobRead(ORMModel):
     platform: str
     source_job_id: str
     title: str
+    recruitment_type: Literal["autumn", "internship"]
     department: str | None
     owner: str | None
     is_active: bool

@@ -266,6 +266,47 @@ def validate_identity(values: dict[str, Any]) -> None:
     values.update(name=name, phone=phone, email=email)
 
 
+def candidate_facts(candidate: Candidate, *, sources: list[CandidateSource] | None = None) -> tuple[dict[str, Any], set[str]]:
+    """兼容旧人工补充，只返回副本；新版明确修改（包括清空）始终优先。"""
+    from app.services.imports import build_rule_parse
+
+    structured = deepcopy(candidate.structured_data or {})
+    if not structured.get("candidate"):
+        sources = candidate.sources if sources is None else sources
+        parsed = build_rule_parse("\n".join(source.raw_resume or "" for source in sources))
+        structured = {**parsed, **structured, "candidate": parsed["candidate"]}
+    legacy = structured.get("manual_supplement") or {}
+    if not legacy:
+        return structured, set()
+    facts = structured["candidate"]
+    summary = structured.get("human_summary") or {}
+    fields = set(legacy.get("fields") or [])
+    # 旧 fields 只记录最后一次提交；这些差异/标记能识别更早的人工补充。
+    if summary.get("skills") and summary["skills"] != facts.get("skills", []):
+        fields.add("skills")
+    projects = summary.get("projects") or []
+    if projects and all(re.fullmatch(r"人工补充经历 \d+", project.get("title", "")) for project in projects):
+        fields.add("experience")
+    if summary.get("note"):
+        fields.add("note")
+    fields -= set(structured.get("manual_fields") or [])
+    migrated = set()
+    if "skills" in fields and "skills" in summary:
+        facts["skills"] = deepcopy(summary["skills"])
+        migrated.add("skills")
+    if "experience" in fields and "projects" in summary:
+        facts["project_experience"] = [{"name": project.get("title", "人工确认经历"),
+                                        "description": project.get("description", ""),
+                                        "evidence": project.get("description", "")} for project in projects]
+        migrated.add("experience")
+    if "note" in fields and "note" in summary:
+        facts["note"] = summary["note"]
+        migrated.add("note")
+    if migrated:
+        structured["manual_fields"] = sorted(set(structured.get("manual_fields") or []) | migrated)
+    return structured, migrated
+
+
 def revise_candidate(session: Session, candidate: Candidate, changes: dict[str, Any], *, version: int | None = None, application_id: int | None = None) -> None:
     from app.services.workflow import write_audit_log
     from app.services.imports import build_human_summary
@@ -282,7 +323,7 @@ def revise_candidate(session: Session, candidate: Candidate, changes: dict[str, 
     duplicate = find_duplicate_candidate(session, name=identity["name"], phone=identity["phone"])
     if duplicate and duplicate.id != candidate.id:
         raise ValueError("姓名与手机号已属于其他候选人，请人工核对，未自动合并")
-    structured = deepcopy(before)
+    structured, migrated = candidate_facts(candidate)
     facts = structured.setdefault("candidate", {})
     facts.update(identity)
     if "skills" in changes:
@@ -309,9 +350,10 @@ def revise_candidate(session: Session, candidate: Candidate, changes: dict[str, 
     candidate.normalized_name = normalize_name(candidate.name)
     candidate.normalized_phone = normalize_phone(candidate.phone)
     candidate.structured_data = structured
-    if any(key in changes for key in ("skills", "experience", "chat_summary")):
+    changed_fields = set(changes) | migrated
+    if changed_fields & {"skills", "experience", "chat_summary"}:
         for application in candidate.applications:
-            if set(changes) == {"chat_summary"} and application_id and application.id != application_id:
+            if changed_fields == {"chat_summary"} and application_id and application.id != application_id:
                 continue
             for evaluation in application.evaluations:
                 evaluation.is_stale = True

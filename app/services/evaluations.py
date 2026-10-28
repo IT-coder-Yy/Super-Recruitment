@@ -1,23 +1,26 @@
 """岗位匹配只读分析；尝试、输入版本和成功结果独立保存。"""
-from copy import deepcopy
 import json
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.service import AIService
-from app.models import Application, ApplicationStatus, EvaluationAttempt, JobVersion
+from app.models import Application, ApplicationStatus, Candidate, EvaluationAttempt, JobVersion
+from app.services.candidates import candidate_facts
 from app.services.imports import build_rule_parse
-from app.services.workflow import create_evaluation, transition_application, write_audit_log
+from app.services.workflow import create_evaluation, lock_record, transition_application, write_audit_log
 
 
-def matching_input(application: Application) -> dict:
+def _application_sources(application: Application):
     sources = [link.source for link in application.source_links]
     if not sources and application.source:
         sources = [application.source]
-    structured = deepcopy(application.candidate.structured_data or {})
-    if not structured.get("candidate"):
-        structured = build_rule_parse("\n".join(s.raw_resume or "" for s in sources), job_title=application.job.title, jd_text=application.job_version.jd_raw)
+    return sources
+
+
+def matching_input(application: Application) -> dict:
+    sources = _application_sources(application)
+    structured, _ = candidate_facts(application.candidate, sources=sources)
     structured["candidate"].update(name=application.candidate.name, phone=application.candidate.phone, email=application.candidate.email)
     structured["job"] = build_rule_parse("", job_title=application.job.title, jd_text=application.job_version.jd_raw)["job"]
     structured["job"]["raw_jd"] = application.job_version.jd_raw
@@ -44,6 +47,21 @@ def matching_input(application: Application) -> dict:
 
 
 def evaluate_application_record(session: Session, application: Application) -> dict:
+    structured, migrated = candidate_facts(application.candidate, sources=_application_sources(application))
+    if migrated:
+        lock_record(session, Candidate, application.candidate_id)
+        structured, migrated = candidate_facts(application.candidate, sources=_application_sources(application))
+    if migrated:
+        structured["revision"] = int(structured.get("revision", 0)) + 1
+        before = application.candidate.structured_data
+        application.candidate.structured_data = structured
+        if migrated & {"skills", "experience"}:
+            for record in application.candidate.applications:
+                for evaluation in record.evaluations:
+                    evaluation.is_stale = True
+        write_audit_log(session, actor="system", action="candidate.legacy_supplement_migrated", entity_type="candidate",
+                        entity_id=application.candidate_id, before_data=before, after_data=structured,
+                        details={"fields": sorted(migrated)})
     # 重评使用岗位当前 JD，历史评估保留自己的 JD 和输入快照。
     current = session.scalar(select(JobVersion).where(JobVersion.job_id == application.job_id, JobVersion.is_current.is_(True)))
     if current:

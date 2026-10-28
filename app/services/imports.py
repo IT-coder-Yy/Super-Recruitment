@@ -82,6 +82,7 @@ def create_file_import_task(
     owner: str | None = None,
     job_id: int | None = None,
     recruitment_type: str = "autumn",
+    new_job_source_id: str | None = None,
 ) -> ImportTask:
     if len(uploads) != 1:
         raise ValueError("每个导入任务只能包含一份简历")
@@ -103,6 +104,7 @@ def create_file_import_task(
         summary_json={
             "job_id": job_id,
             "recruitment_type": recruitment_type,
+            "new_job_source_id": new_job_source_id if job_id is None else None,
             "file_count": len(uploads),
             "supported_types": sorted(SUPPORTED_EXTENSIONS),
             "message": "文件已上传，尚未解析；点击开始解析后才会生成入库预览。",
@@ -304,7 +306,10 @@ def confirm_import_task(
         candidate.structured_data = structured
 
     selected_job_id = (task.summary_json or {}).get("job_id")
+    new_job_source_id = (task.summary_json or {}).get("new_job_source_id")
     job = session.get(Job, selected_job_id) if selected_job_id else None
+    if not selected_job_id and new_job_source_id:
+        job = session.scalar(select(Job).where(Job.platform == "file", Job.source_job_id == new_job_source_id))
     if job:
         job_version = next((version for version in reversed(job.versions) if version.is_current), None)
         if job_version is None:
@@ -314,7 +319,7 @@ def confirm_import_task(
         session,
         JobCreate(
             platform="file",
-            source_job_id=f"local-import-{task.id}",
+            source_job_id=new_job_source_id or f"local-import-{task.id}",
             title=job_title,
             recruitment_type=(task.summary_json or {}).get("recruitment_type", "autumn"),
             department=None,

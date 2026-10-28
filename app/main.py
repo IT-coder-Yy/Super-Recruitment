@@ -1299,6 +1299,7 @@ async def upload_import_files(
 ) -> dict[str, Any]:
     if job_id is None and recruitment_type not in {"autumn", "internship"}:
         raise HTTPException(422, "新建岗位必须选择秋招或实习")
+    new_job_source_id = f"local-batch-{secrets.token_hex(16)}" if job_id is None else None
     tasks, errors = [], []
     for file in files:
         stored = None
@@ -1312,6 +1313,7 @@ async def upload_import_files(
                 session, uploads=[stored], operator_id=request.session.get("user_id"),
                 job_title=job_title, jd_text=jd_text, channel=channel, owner=owner, job_id=job_id,
                 recruitment_type=recruitment_type or "autumn",
+                new_job_source_id=new_job_source_id,
             )
             session.commit()
             tasks.append(serialize_import_task(task))

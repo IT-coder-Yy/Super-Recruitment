@@ -1,11 +1,13 @@
 """HR 登记与独立到岗确认，复用投递 JSON 和原有准备任务。"""
 from copy import deepcopy
 from datetime import date
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from app.models import Application, ApplicationStatus, FollowUpTask, FollowUpStatus, OnboardingStatus, OnboardingTask, utc_now
 from app.services.workflow import lock_record, transition_application, write_audit_log
+from app.services.scheduling import DEFAULT_TIMEZONE
 
 
 def update_onboarding(session, application_id: int, *, action: str, version: int, values: dict):
@@ -21,10 +23,12 @@ def update_onboarding(session, application_id: int, *, action: str, version: int
         raise ValueError("未知入职操作")
     if action != "update" and not note:
         raise ValueError("请填写核实说明")
-    registration = {**before, "revision": version + 1, "note": note, "updated_at": utc_now().isoformat()}
+    now = utc_now()
+    registration = {**before, "revision": version + 1, "note": note, "updated_at": now.isoformat()}
+    today = now.astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date()
     if action in {"update", "defer"}:
         expected = values.get("expected_date") or before.get("expected_date")
-        if not expected or date.fromisoformat(expected) < utc_now().date():
+        if not expected or date.fromisoformat(expected) < today:
             raise ValueError("请填写今天或未来的预计到岗日期")
         location = values.get("location") or before.get("location")
         if not location:
@@ -41,7 +45,7 @@ def update_onboarding(session, application_id: int, *, action: str, version: int
         transition_application(session, application.id, ApplicationStatus.ONBOARDING_WITHDRAWN, actor="HR", is_human_action=True, reason=note)
     else:
         actual = values.get("actual_date")
-        if not actual or date.fromisoformat(actual) > utc_now().date():
+        if not actual or date.fromisoformat(actual) > today:
             raise ValueError("请核实已实际到岗的日期，不能填写未来日期")
         if not before.get("expected_date") or before.get("state") == "needs_supplement":
             raise ValueError("请先补齐入职登记和待补材料")

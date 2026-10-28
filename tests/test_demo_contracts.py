@@ -7,6 +7,7 @@ import re
 import sqlite3
 from threading import Event, Barrier
 import uuid
+from zoneinfo import ZoneInfo
 
 import pytest
 from docx import Document
@@ -316,7 +317,7 @@ def test_onboarding_preparation_does_not_join_and_withdraw_blocks_old_actions(en
         session.commit()
         assert app.status == ApplicationStatus.ONBOARDING
         with pytest.raises(ValueError, match="登记"):
-            update_onboarding(session, app.id, action="join", version=0, values={"actual_date": utc_now().date().isoformat(), "note": "到岗"})
+            update_onboarding(session, app.id, action="join", version=0, values={"actual_date": utc_now().astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(), "note": "到岗"})
         session.rollback()
         terms = offers.offer_snapshot(offer)
         update_onboarding(session, app.id, action="defer", version=0, values={"expected_date": (utc_now()+timedelta(days=10)).date().isoformat(), "location": "虚构前台", "note": "候选人申请延期"})
@@ -324,7 +325,7 @@ def test_onboarding_preparation_does_not_join_and_withdraw_blocks_old_actions(en
         assert offers.offer_snapshot(offer) == terms
         update_onboarding(session, app.id, action="needs_supplement", version=1, values={"note": "材料需补齐"}); session.commit()
         with pytest.raises(ValueError):
-            update_onboarding(session, app.id, action="join", version=2, values={"actual_date": utc_now().date().isoformat(), "note": "到岗"})
+            update_onboarding(session, app.id, action="join", version=2, values={"actual_date": utc_now().astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(), "note": "到岗"})
         session.rollback()
         update_onboarding(session, app.id, action="withdraw", version=2, values={"note": "本人确认放弃"}); session.commit()
         with pytest.raises(ValueError):

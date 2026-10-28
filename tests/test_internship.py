@@ -2,6 +2,7 @@
 import csv
 from datetime import timedelta
 from io import BytesIO, StringIO
+from zoneinfo import ZoneInfo
 
 import pytest
 from openpyxl import load_workbook
@@ -199,20 +200,20 @@ def test_internship_two_interviews_offer_approval_and_onboarding(env):
     assert client.post(f"/api/offers/{offer_id}/send", headers=headers).status_code == 422
     post(client, headers, f"/api/offers/{offer_id}/terms", version=0, company_name="虚构公司", job_title="虚构实习工程师",
         salary="300 元/天", subsidy="无", office_location="虚构办公区", report_location="虚构前台",
-        report_time=utc_now().date().isoformat(), expires_at=(utc_now() + timedelta(days=3)).isoformat())
+        report_time=utc_now().astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(), expires_at=(utc_now() + timedelta(days=3)).isoformat())
     post(client, headers, f"/api/offers/{offer_id}/approve", version=1)
     post(client, headers, f"/api/offers/{offer_id}/send")
     with factory() as session:
         token = session.get(Offer, offer_id).candidate_token
     assert client.post(f"/offer/{token}/respond", data={"accepted": "true"}).status_code == 200
     post(client, headers, f"/api/applications/{app_id}/onboarding", action="update", version=0,
-         expected_date=utc_now().date().isoformat(), location="虚构前台")
+         expected_date=utc_now().astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(), location="虚构前台")
     with factory() as session:
         task_ids = session.scalars(select(OnboardingTask.id).where(OnboardingTask.application_id == app_id)).all()
     for task in task_ids:
         post(client, headers, f"/api/onboarding/{task}/complete")
     post(client, headers, f"/api/applications/{app_id}/onboarding", action="join", version=1,
-         actual_date=utc_now().date().isoformat(), note="HR 已确认到岗")
+         actual_date=utc_now().astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(), note="HR 已确认到岗")
     with factory() as session:
         assert session.get(Application, app_id).status == ApplicationStatus.JOINED
     assert len(client.get("/api/offers?recruitment_type=internship").json()) == 1

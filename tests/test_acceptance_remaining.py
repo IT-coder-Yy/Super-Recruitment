@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import sys
 from threading import Barrier
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -428,7 +429,7 @@ def test_both_hr_users_all_business_audit_actions(env):
             with TestClient(main.app) as candidate:
                 assert candidate.post(f'/offer/{token}/respond', data={'accepted': 'true'}).status_code == 200
             post(client, csrf, f'/api/applications/{offer.application_id}/onboarding', action='update', version=0,
-                 expected_date=utc_now().date().isoformat(), location='虚构前台', note='HR 核实登记')
+                 expected_date=utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(), location='虚构前台', note='HR 核实登记')
             with factory() as session:
                 logs = session.scalars(select(AuditLog).where(AuditLog.id > start)).all()
                 required = ['candidate.supplemented', 'application.status_changed', 'exam_resource.created', 'exam.dispatched',
@@ -504,7 +505,6 @@ def test_weak_identity_never_merges_and_hr_can_correct(env, change):
 
 
 def test_schedule_fixed_clock_hours_buffer_and_confirmation_recheck(env, monkeypatch):
-    from zoneinfo import ZoneInfo
     client, headers, factory = env
     now = datetime(2026, 11, 6, 13, tzinfo=timezone.utc)  # 周五北京时间 21:00
     class Clock(datetime):
@@ -567,7 +567,7 @@ def test_onboarding_branches_restart_reminders_and_frozen_offer(env, tmp_path, b
         snapshot = offers.offer_snapshot(offer)
         tasks = session.scalars(select(OnboardingTask).where(OnboardingTask.application_id == offer.application_id)).all()
     endpoint = f'/api/applications/{offer.application_id}/onboarding'
-    today = utc_now().date().isoformat()
+    today = utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
     post(client, headers, endpoint, action='update', version=0, expected_date=today, location='虚构前台')
     run_followups(factory)
     post(client, headers, f'/api/onboarding/{tasks[0].id}/complete')
@@ -792,7 +792,7 @@ def test_s04_from_import_model_invite_mail_recovery_and_restart(env, monkeypatch
     assert client.post(f'/offer/{token}/respond', data={'accepted': 'true'}).status_code == 200
     run_followups(factory)
     restart(factory, tmp_path)
-    post(client, headers, f'/api/applications/{record.id}/onboarding', action='update', version=0, expected_date=utc_now().date().isoformat(), location='虚构前台')
+    post(client, headers, f'/api/applications/{record.id}/onboarding', action='update', version=0, expected_date=utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(), location='虚构前台')
     with factory() as session:
         assert session.get(Application, record.id).status == ApplicationStatus.ONBOARDING
         assert session.scalar(select(func.count(Evaluation.id))) == 2
@@ -807,10 +807,10 @@ def test_s06_replay_import_approval_reply_arrival_after_restart(env, tmp_path):
         offer = session.get(Offer, prepared.id); token = offer.candidate_token
         task = session.scalar(select(ImportTask)); import_id = task.id
     assert client.post(f'/offer/{token}/respond', data={'accepted': 'true'}).status_code == 200
-    post(client, headers, f'/api/applications/{offer.application_id}/onboarding', action='update', version=0, expected_date=utc_now().date().isoformat(), location='虚构前台')
+    post(client, headers, f'/api/applications/{offer.application_id}/onboarding', action='update', version=0, expected_date=utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(), location='虚构前台')
     with factory() as session: tasks = session.scalars(select(OnboardingTask)).all()
     for task in tasks: post(client, headers, f'/api/onboarding/{task.id}/complete')
-    post(client, headers, f'/api/applications/{offer.application_id}/onboarding', action='join', version=1, actual_date=utc_now().date().isoformat(), note='HR 已现场核实')
+    post(client, headers, f'/api/applications/{offer.application_id}/onboarding', action='join', version=1, actual_date=utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(), note='HR 已现场核实')
     def counts():
         with factory() as session:
             return [session.scalar(select(func.count(model.id))) for model in [Application, CandidateSource, OfferApproval, Notification, OnboardingTask, AuditLog]]
@@ -819,7 +819,7 @@ def test_s06_replay_import_approval_reply_arrival_after_restart(env, tmp_path):
         assert post(client, headers, f'/api/import/tasks/{import_id}/confirm')['application_id'] == offer.application_id
         assert client.post(f'/api/offers/{offer.id}/approve', headers=headers, data={'version': 1}).status_code in {200, 409, 422}
         assert client.post(f'/offer/{token}/respond', data={'accepted': 'true'}).status_code == 200
-        post(client, headers, f'/api/applications/{offer.application_id}/onboarding', action='join', version=1, actual_date=utc_now().date().isoformat(), note='HR 已现场核实')
+        post(client, headers, f'/api/applications/{offer.application_id}/onboarding', action='join', version=1, actual_date=utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(), note='HR 已现场核实')
         assert counts() == before
         restart(factory, tmp_path)
 
@@ -847,10 +847,10 @@ def test_s01_frozen_r01_two_exam_passes_to_independent_arrival(env):
     with TestClient(main.app) as candidate:
         assert candidate.post(f'/offer/{token}/respond', data={'accepted': 'true'}).status_code == 200
     endpoint = f'/api/applications/{offer.application_id}/onboarding'
-    post(client, headers, endpoint, action='update', version=0, expected_date=utc_now().date().isoformat(), location='虚构前台')
+    post(client, headers, endpoint, action='update', version=0, expected_date=utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(), location='虚构前台')
     with factory() as session: tasks = session.scalars(select(OnboardingTask)).all()
     for task in tasks: post(client, headers, f'/api/onboarding/{task.id}/complete')
     with factory() as session: assert session.get(Application, offer.application_id).status == ApplicationStatus.ONBOARDING
-    post(client, headers, endpoint, action='join', version=1, actual_date=utc_now().date().isoformat(), note='HR 现场核实')
+    post(client, headers, endpoint, action='join', version=1, actual_date=utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(), note='HR 现场核实')
     summary = client.get('/api/dashboard/summary').json()
     assert summary['funnel'] == {'applications': 1, 'screened': 1, 'assessments': 1, 'written': 1, 'interviews': 1, 'offers': 1, 'onboarded': 1}

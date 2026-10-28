@@ -16,39 +16,8 @@ from app.ai.prompts import (
     build_structure_messages,
 )
 from app.services.redaction import extract_contact_info, redact_data, redact_text
+from app.services.imports import build_rule_parse, _contains_term, _positive_fragments
 
-
-KNOWN_SKILLS = (
-    "Python",
-    "FastAPI",
-    "Django",
-    "Flask",
-    "Java",
-    "Spring Boot",
-    "JavaScript",
-    "TypeScript",
-    "React",
-    "Vue",
-    "SQL",
-    "MySQL",
-    "PostgreSQL",
-    "SQLite",
-    "Redis",
-    "Docker",
-    "Kubernetes",
-    "Git",
-    "Linux",
-    "PyTorch",
-    "TensorFlow",
-    "LangChain",
-    "RAG",
-    "LLM",
-    "大模型",
-    "机器学习",
-    "深度学习",
-    "自然语言处理",
-    "向量检索",
-)
 
 EXPERIENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "project_experience": ("name", "role", "description", "evidence"),
@@ -233,6 +202,7 @@ def _normalize_evaluation(raw: dict[str, Any]) -> dict[str, Any]:
                     limit=20,
                 ),
                 "confidence": _confidence(item.get("confidence")),
+                "references": item.get("references", []),
             }
         )
 
@@ -268,11 +238,6 @@ def _find_labeled_value(text: str, labels: tuple[str, ...]) -> str | None:
     return match.group(1).strip() if match else None
 
 
-def _extract_skills(text: str) -> list[str]:
-    lower = text.casefold()
-    return [skill for skill in KNOWN_SKILLS if skill.casefold() in lower]
-
-
 def _matching_lines(text: str, keywords: tuple[str, ...], limit: int = 8) -> list[str]:
     result = []
     for line in _lines(text):
@@ -283,170 +248,20 @@ def _matching_lines(text: str, keywords: tuple[str, ...], limit: int = 8) -> lis
     return result
 
 
-def _mock_structure(
-    resume_text: str,
-    chat_text: str,
-    jd_text: str,
-) -> dict[str, Any]:
-    contacts = extract_contact_info(resume_text)
-    name = _find_labeled_value(resume_text, ("姓名", "name", "候选人"))
-    skills = _extract_skills(resume_text)
-    project_lines = _matching_lines(
-        resume_text,
-        ("项目", "系统", "平台", "project"),
-        limit=5,
-    )
-    internship_lines = _matching_lines(
-        resume_text,
-        ("实习", "intern"),
-        limit=5,
-    )
-    work_lines = _matching_lines(
-        resume_text,
-        ("工作经历", "任职", "有限公司", "公司"),
-        limit=5,
-    )
-    education_lines = _matching_lines(
-        resume_text,
-        ("大学", "学院", "本科", "硕士", "博士", "education"),
-        limit=3,
-    )
-
+def _mock_structure(resume_text: str, chat_text: str, jd_text: str) -> dict[str, Any]:
     title = _find_labeled_value(jd_text, ("岗位", "职位", "job title", "title"))
     if not title:
         title = next((line for line in _lines(jd_text) if len(line) <= 60), None)
-
-    required_skills = _extract_skills(jd_text)
-    responsibilities = _matching_lines(jd_text, ("负责", "职责", "工作内容"))
-    preferred = _matching_lines(jd_text, ("优先", "加分"))
-    experience_requirements = _matching_lines(
-        jd_text,
-        ("经验", "经历", "年及以上"),
-    )
-    education_requirements = _matching_lines(
-        jd_text,
-        ("学历", "本科", "硕士", "博士"),
-    )
-    domain = next(
-        (
-            value
-            for value in (
-                "人工智能",
-                "大模型",
-                "电商",
-                "金融",
-                "教育",
-                "医疗",
-                "游戏",
-                "企业服务",
-            )
-            if value in jd_text
-        ),
-        None,
-    )
-
-    availability_evidence = _matching_lines(
-        chat_text,
-        ("到岗", "实习", "每周", "时间", "日期"),
-        limit=3,
-    )
-    intent_evidence = _matching_lines(
-        chat_text,
-        ("应聘", "求职", "有意", "希望", "考虑"),
-        limit=3,
-    )
-    start_date = _find_labeled_value(
-        chat_text,
-        ("到岗时间", "预计到岗", "start date"),
-    )
-
-    missing: list[str] = []
-    for field, value in (
-        ("candidate.name", name),
-        ("candidate.phone", contacts["phone"]),
-        ("candidate.skills", skills),
-        ("job.title", title),
-        ("job.required_skills", required_skills),
-        ("chat.summary", _snippet(chat_text)),
-    ):
-        if not value:
-            missing.append(field)
-
-    evidence_count = sum(
-        bool(value)
-        for value in (name, skills, project_lines, title, required_skills, chat_text)
-    )
-    confidence = round(0.45 + evidence_count * 0.08, 2)
-
-    def experience_items(
-        lines: list[str],
-        *,
-        name_field: str,
-    ) -> list[dict[str, str | None]]:
-        return [
-            {
-                name_field: None,
-                "role": None,
-                "description": line,
-                "evidence": line,
-            }
-            for line in lines
-        ]
-
-    return {
-        "schema_version": STRUCTURE_SCHEMA_VERSION,
-        "candidate": {
-            "name": name,
-            "summary": _snippet(resume_text),
-            "skills": skills,
-            "education": [
-                {
-                    "school": None,
-                    "major": None,
-                    "degree": None,
-                    "evidence": line,
-                }
-                for line in education_lines
-            ],
-            "project_experience": experience_items(
-                project_lines,
-                name_field="name",
-            ),
-            "internship_experience": experience_items(
-                internship_lines,
-                name_field="company",
-            ),
-            "work_experience": experience_items(
-                work_lines,
-                name_field="company",
-            ),
-        },
-        "chat": {
-            "summary": _snippet(chat_text),
-            "intent": _snippet("；".join(intent_evidence), limit=500),
-            "availability": _snippet(
-                "；".join(availability_evidence),
-                limit=500,
-            ),
-            "start_date": start_date,
-            "evidence": list(dict.fromkeys(intent_evidence + availability_evidence)),
-        },
-        "job": {
-            "title": title,
-            "responsibilities": responsibilities,
-            "required_skills": required_skills,
-            "preferred_skills": preferred,
-            "experience_requirements": experience_requirements,
-            "education_requirements": education_requirements,
-            "domain": domain,
-            "other_requirements": [],
-        },
-        "quality": {
-            "confidence": min(confidence, 0.93),
-            "missing_fields": missing,
-            "warnings": ["当前结果由本地 Mock 规则生成"],
-        },
+    result = build_rule_parse(resume_text, job_title=title, jd_text=jd_text)
+    result["chat"] = {
+        "summary": _snippet(chat_text),
+        "intent": _snippet("；".join(_matching_lines(chat_text, ("应聘", "求职", "有意", "希望")))),
+        "availability": _snippet("；".join(_matching_lines(chat_text, ("到岗", "每周", "时间")))),
+        "start_date": _find_labeled_value(chat_text, ("到岗时间", "预计到岗", "start date")),
+        "evidence": _lines(chat_text),
     }
+    result["job"]["domain"] = _find_labeled_value(jd_text, ("业务领域", "domain"))
+    return result
 
 
 def _flatten_strings(value: Any) -> list[str]:
@@ -465,146 +280,102 @@ def _flatten_strings(value: Any) -> list[str]:
     return []
 
 
+def _weekly_days(text: str) -> tuple[int | None, str]:
+    # shortcut: 仅识别明确的每周N天；区间、冲突和复杂安排交HR核对。
+    text = re.sub(r"(?m)^\s*(?:意向|到岗意向|求职意向)\s*[:：]", "", text)
+    found = {}
+    lines = [line for line in text.splitlines()
+             if not re.match(r"\s*(?:HR|招聘方|招聘人员|面试官|recruiter)\s*[:：]", line, re.IGNORECASE)]
+    if any("每周" in line and re.search(r"[?？]|吗|能否|是否|不能|没有|无法|不保证|不确定|未确定|不一定|可能|大概|最多", line) for line in lines):
+        return None, ""
+    for fragment in _positive_fragments("\n".join(lines)):
+        for match in re.finditer(r"每周\s*(?:可|至少|能够|工作|实习|出勤|到岗|\s)*([一二三四五六七1-7])\s*天(?!\s*(?:或|到|至|[-~～/]))", fragment):
+            value = match.group(1)
+            days = int(value) if value.isdigit() else "一二三四五六七".index(value) + 1
+            found[days] = fragment
+    return next(iter(found.items())) if len(found) == 1 else (None, "")
+
+
 def _mock_evaluation(structured_data: dict[str, Any]) -> dict[str, Any]:
     candidate = _as_dict(structured_data.get("candidate"), "candidate")
     chat = _as_dict(structured_data.get("chat"), "chat")
     job = _as_dict(structured_data.get("job"), "job")
-
-    candidate_skills = _string_list(candidate.get("skills"))
     required_skills = _string_list(job.get("required_skills"))
-    candidate_text = " ".join(_flatten_strings(candidate))
-    candidate_lower = candidate_text.casefold()
-    matched_skills = [
-        skill for skill in required_skills if skill.casefold() in candidate_lower
-    ]
-    if required_skills:
-        required_score = round(100 * len(matched_skills) / len(required_skills), 2)
-        required_confidence = 0.9
-    else:
-        required_score = 60
-        required_confidence = 0.4
+    candidate_skills = _string_list(candidate.get("skills"))
+    # 人工确认的技能优先，不能从summary或旧简历把删除的技能重新加回来。
+    matched_skills = [skill for skill in required_skills
+                      if any(skill.casefold() == value.casefold() for value in candidate_skills)]
 
-    projects = candidate.get("project_experience") or []
-    project_score = min(100, 65 + len(projects) * 10) if projects else (
-        35 if candidate_skills else 10
-    )
-    project_evidence = "；".join(
-        _text(item.get("evidence"), limit=300)
-        for item in projects[:3]
-        if isinstance(item, Mapping) and item.get("evidence")
-    )
+    def coverage(matches: list[str]) -> float:
+        return round(100 * len(matches) / len(required_skills), 2) if required_skills else 0
 
-    experiences = list(candidate.get("internship_experience") or []) + list(
-        candidate.get("work_experience") or []
-    )
-    experience_requirements = _string_list(job.get("experience_requirements"))
-    experience_score = min(100, 65 + len(experiences) * 8) if experiences else 20
-    experience_evidence = "；".join(
-        _text(item.get("evidence"), limit=300)
-        for item in experiences[:3]
-        if isinstance(item, Mapping) and item.get("evidence")
-    )
+    def evidence_for(fields: tuple[str, ...]) -> tuple[str, list[str]]:
+        evidence = list(dict.fromkeys(
+            _text(item.get("evidence") or item.get("description"), limit=1000)
+            for field in fields for item in candidate.get(field) or []
+            if isinstance(item, Mapping) and (item.get("evidence") or item.get("description"))
+        ))
+        positive = "\n".join(_positive_fragments("\n".join(evidence)))
+        matches = [skill for skill in required_skills if _contains_term(positive, skill)]
+        return "；".join(evidence)[:1000], matches
 
+    project_evidence, project_matches = evidence_for(("project_experience",))
+    experience_evidence, experience_matches = evidence_for(("internship_experience", "work_experience"))
     domain = _nullable_text(job.get("domain"), limit=200)
-    if not domain:
-        domain_score = 60
-        domain_confidence = 0.35
-        domain_evidence = ""
-    elif domain.casefold() in candidate_lower:
-        domain_score = 90
-        domain_confidence = 0.85
-        domain_evidence = domain
-    else:
-        domain_score = 30
-        domain_confidence = 0.65
-        domain_evidence = ""
+    domain_text = "\n".join(_positive_fragments(project_evidence + "\n" + experience_evidence))
+    domain_match = bool(domain and _contains_term(domain_text, domain))
+    # 仅用本投递聊天；无聊天时参考简历自述，不推断为已核实。
+    chat_text = _text(chat.get("summary")) or "\n".join(
+        _text(message.get("content")) for message in chat.get("messages") or []
+        if isinstance(message, Mapping) and message.get("role") == "candidate"
+    ) or "\n".join(_flatten_strings({key: chat.get(key) for key in ("intent", "availability")}))
+    availability_source = "本投递沟通" if chat_text.strip() else "简历自述（未核实）"
+    availability_text = chat_text if chat_text.strip() else "\n".join(
+        _text(document.get("text"), limit=100000) for document in structured_data.get("source_documents") or []
+    ) or _text(candidate.get("summary"))
+    available_days, availability_evidence = _weekly_days(availability_text)
+    requirement_text = job.get("raw_jd") or "\n".join(_flatten_strings(job))
+    required_days, _ = _weekly_days(requirement_text)
+    availability_known = available_days is not None and required_days is not None
+    availability_matches = availability_known and available_days >= required_days
 
-    chat_summary = _nullable_text(chat.get("summary"), limit=1000)
-    intent = _nullable_text(chat.get("intent"), limit=500)
-    availability = _nullable_text(chat.get("availability"), limit=500)
-    communication_score = 20 + (40 if intent else 0) + (40 if availability else 0)
-    communication_evidence = "；".join(
-        item for item in (intent, availability, chat_summary) if item
-    )[:1000]
-
-    missing: list[str] = []
+    skill_missing = [f"未找到已确认技能：{skill}" for skill in required_skills if skill not in matched_skills]
+    full_requirements = _string_list(job.get("other_requirements")) or ([requirement_text] if requirement_text else [])
+    missing = ["Mock未校准：分数仅为词项/明确出勤覆盖演示值，不代表熟练度、完整JD符合或录用建议",
+               "项目与实习/工作仅检查明确技术词；迁移能力、本人职责、测试质量及经验计分口径需人工确认"]
+    missing.extend(f"完整要求仍待逐项核对：{value}" for value in full_requirements)
+    missing.extend(skill_missing)
     if not required_skills:
-        missing.append("JD 未明确可识别的必备技能")
-    if not projects:
-        missing.append("未识别到明确的项目证据")
-    if not experiences:
-        missing.append("未识别到明确的实习或工作经历")
+        missing.append("JD没有可识别的必备技能，覆盖分未知")
     if not domain:
-        missing.append("JD 未明确业务领域")
-    if not chat_summary:
-        missing.append("缺少初步聊天信息")
-
-    dimensions = [
-        {
-            "name": "required_skills",
-            "score": required_score,
-            "jd_requirement": "、".join(required_skills)
-            or "JD 未明确可识别的必备技能",
-            "resume_evidence": "、".join(matched_skills)
-            or "未找到明确匹配证据",
-            "missing_or_conflicting": [
-                f"未找到技能证据：{skill}"
-                for skill in required_skills
-                if skill not in matched_skills
-            ],
-            "confidence": required_confidence,
-        },
-        {
-            "name": "project_evidence",
-            "score": project_score,
-            "jd_requirement": "以 JD 职责和技能要求为准",
-            "resume_evidence": project_evidence or "未找到明确项目证据",
-            "missing_or_conflicting": [] if projects else ["缺少项目证据"],
-            "confidence": 0.8 if projects else 0.45,
-        },
-        {
-            "name": "relevant_experience",
-            "score": experience_score,
-            "jd_requirement": "；".join(experience_requirements)
-            or "JD 未明确经验年限",
-            "resume_evidence": experience_evidence or "未找到明确经历证据",
-            "missing_or_conflicting": [] if experiences else ["缺少相关经历证据"],
-            "confidence": 0.8 if experiences else 0.45,
-        },
-        {
-            "name": "domain_match",
-            "score": domain_score,
-            "jd_requirement": domain or "JD 未明确业务领域",
-            "resume_evidence": domain_evidence or "未找到明确领域证据",
-            "missing_or_conflicting": [] if domain_evidence else ["领域证据不足"],
-            "confidence": domain_confidence,
-        },
-        {
-            "name": "communication_intent",
-            "score": communication_score,
-            "jd_requirement": "结合沟通信息核对求职意向与到岗安排",
-            "resume_evidence": communication_evidence or "缺少聊天证据",
-            "missing_or_conflicting": [] if chat_summary else ["缺少聊天信息"],
-            "confidence": 0.85 if chat_summary else 0.3,
-        },
-    ]
-
-    if required_skills and len(matched_skills) == len(required_skills):
-        skill_summary = "必备技能均有明确匹配"
-    elif matched_skills:
-        skill_summary = "部分必备技能有明确匹配"
+        missing.append("JD未明确业务领域；缺证记0不代表能力不足")
+    if not availability_known:
+        availability_note = "每周出勤要求或可用天数未知/冲突，暂不计算意向分；不等于不满足"
+    elif availability_matches:
+        availability_note = f"{availability_source}每周{available_days}天，达到文本中的{required_days}天要求；仍需HR核实"
     else:
-        skill_summary = "必备技能证据不足"
-    reason = (
-        f"{skill_summary}；项目、经历及求职意向评分均基于现有文本证据，"
-        "缺失项建议在人工面试中确认。"
-    )[:100]
+        availability_note = f"{availability_source}每周{available_days}天，少于文本中的{required_days}天要求；由HR核对"
+    missing.append(availability_note)
 
+    values = (
+        ("required_skills", coverage(matched_skills), "、".join(required_skills), "、".join(matched_skills), skill_missing),
+        ("project_evidence", coverage(project_matches), "项目中已识别技能的覆盖", project_evidence,
+         [f"项目未找到明确词项：{skill}" for skill in required_skills if skill not in project_matches]),
+        ("relevant_experience", coverage(experience_matches), "实习/工作中已识别技能的覆盖，相关性待核实", experience_evidence,
+         [f"实习/工作未找到明确词项：{skill}" for skill in required_skills if skill not in experience_matches]),
+        ("domain_match", 100 if domain_match else 0, domain or "JD未明确业务领域", domain if domain_match else "",
+         [] if domain_match else ["领域证据不足，未知"]),
+        ("communication_intent", 100 if availability_matches else 0, "仅核对JD明确的每周出勤天数", availability_evidence, [availability_note]),
+    )
+    dimensions = [{"name": name, "score": score, "jd_requirement": requirement or "未知",
+                   "resume_evidence": evidence or "未找到明确证据，未知",
+                   "missing_or_conflicting": notes, "confidence": 0.3 if evidence else 0}
+                  for name, score, requirement, evidence, notes in values]
     return {
         "evaluation_version": EVALUATION_VERSION,
         "dimensions": dimensions,
         "missing_information": missing,
-        "recommendation_reason": reason,
+        "recommendation_reason": "Mock未校准：仅演示已确认技能及经历词项、明确出勤的覆盖；不按条目数加分，完整要求与匹配合理性须人工核对。",
     }
 
 
@@ -673,6 +444,15 @@ class AIService:
                 "prompt_version": PROMPT_VERSION,
             }
         )
+        if safe_data.get("evidence_catalog") and result["meta"]["provider"] != "mock":
+            catalog = safe_data["evidence_catalog"]
+            for dimension in output["dimensions"]:
+                references = dimension["references"]
+                if not isinstance(references, list) or (dimension["score"] > 0 and not references):
+                    raise ValueError("评分缺少可定位证据引用")
+                for reference in references:
+                    if not isinstance(reference, dict) or reference.get("id") not in catalog or not reference.get("quote") or reference["quote"] not in catalog[reference["id"]]:
+                        raise ValueError("模型引用不存在或并非输入原文")
         return output
 
     def analyze_candidate(

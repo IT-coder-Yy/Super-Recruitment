@@ -7,10 +7,12 @@ from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from typing import Any
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.notifications import send_wecom_notification
+from app.config import get_setting
+from app.services.auth import current_actor
 from app.models import (
     Application,
     ApplicationStatus,
@@ -32,6 +34,7 @@ from app.models import (
 )
 from app.services.workflow import (
     InvalidStatusTransition,
+    lock_record,
     get_or_create_follow_up,
     transition_application,
     write_audit_log,
@@ -50,9 +53,14 @@ def submit_interview_feedback(
     next_action: str,
     actor: str = "本地管理员",
 ) -> dict[str, Any]:
-    interview = session.get(Interview, interview_id)
-    if interview is None:
-        raise ValueError("面试记录不存在")
+    interview = lock_record(session, Interview, interview_id)
+    if interview.feedback:
+        if all(interview.feedback.get(k) == v for k, v in {"result": result, "comment": comment, "next_action": next_action}.items()):
+            return {"application_id": interview.application_id, "status": interview.application.status.value}
+        raise ValueError("本轮已有反馈，不能覆盖旧结论")
+    if interview.status != InterviewStatus.CONFIRMED:
+        raise ValueError("请先完成本轮面试预约")
+    actor = current_actor.get() or actor
     application = interview.application
     interview.feedback = {
         "result": result,
@@ -120,7 +128,9 @@ def create_offer(
     *,
     actor: str = "本地管理员",
 ) -> Offer:
-    application = _get_application(session, application_id)
+    application = lock_record(session, Application, application_id)
+    if application.status != ApplicationStatus.OFFER_PENDING:
+        raise ValueError("只有面试通过并进入 Offer 阶段才能创建录用通知")
     existing = session.scalar(
         select(Offer)
         .where(
@@ -137,9 +147,9 @@ def create_offer(
         candidate_name=candidate.name or "同学",
         company_name="Testin",
         job_title=application.job.title,
-        report_time="Offer 接受后由 HR 确认",
-        report_location="Testin 办公区 1 层前台",
-        office_location="Testin 项目办公室",
+        report_time="",
+        report_location="",
+        office_location="",
     )
     offer = Offer(
         application_id=application.id,
@@ -149,9 +159,9 @@ def create_offer(
         company_name="Testin",
         job_title=application.job.title,
         content=content,
-        report_time="Offer 接受后由 HR 确认",
-        report_location="Testin 办公区 1 层前台",
-        office_location="Testin 项目办公室",
+        report_time="",
+        report_location="",
+        office_location="",
         expires_at=utc_now() + timedelta(days=7),
     )
     session.add(offer)
@@ -174,86 +184,131 @@ def create_offer(
     return offer
 
 
-def approve_offer(
-    session: Session,
-    offer_id: int,
-    *,
-    approver: str = "管理员",
-    reason: str = "单级审批通过",
-) -> Offer:
-    offer = _get_offer(session, offer_id)
-    if offer.status not in {OfferStatus.PENDING_APPROVAL, OfferStatus.DRAFT}:
-        raise ValueError("当前 Offer 状态不允许审批")
-    approval = offer.approvals[0] if offer.approvals else OfferApproval(offer_id=offer.id)
-    approval.status = OfferApprovalStatus.APPROVED
-    approval.approver = approver
-    approval.decision_reason = reason
-    approval.decided_at = utc_now()
-    session.add(approval)
-    offer.status = OfferStatus.APPROVED
-    write_audit_log(
-        session,
-        actor=approver,
-        action="offer.approved",
-        entity_type="offer",
-        entity_id=offer.id,
-        after_data={"reason": reason},
-    )
+def offer_snapshot(offer: Offer) -> dict:
+    return {"terms": offer.terms or {}, "job_title": offer.job_title, "company_name": offer.company_name,
+            "report_time": offer.report_time, "report_location": offer.report_location, "office_location": offer.office_location,
+            "expires_at": _as_utc_aware(offer.expires_at).isoformat() if offer.expires_at else None,
+            "candidate_email": offer.candidate_email, "content": offer.content}
+
+
+def missing_offer_terms(offer: Offer) -> list[str]:
+    values = {"薪资": (offer.terms or {}).get("salary"), "补贴（无补贴请填无）": (offer.terms or {}).get("subsidy"),
+              "岗位": offer.job_title, "报到日期": offer.report_time, "报到地址": offer.report_location,
+              "办公地址": offer.office_location, "有效期": offer.expires_at, "收件邮箱": offer.candidate_email}
+    return [name for name, value in values.items() if not value or "待" in str(value) or "确认" in str(value)]
+
+
+def save_offer_terms(session: Session, offer_id: int, values: dict, *, version: int) -> Offer:
+    offer = lock_record(session, Offer, offer_id)
+    if offer.status not in {OfferStatus.DRAFT, OfferStatus.PENDING_APPROVAL, OfferStatus.APPROVED}:
+        raise ValueError("已发放或已结束的 Offer 条款不可修改")
+    current = int((offer.terms or {}).get("revision", 0))
+    if version != current:
+        raise ValueError("Offer 条款已更新，请刷新后再保存")
+    delivery = session.scalar(select(Notification).where(Notification.target_type == "offer", Notification.target_id == offer.id,
+        Notification.channel == "email", Notification.status.in_([NotificationStatus.SENDING, NotificationStatus.UNKNOWN, NotificationStatus.SENT, NotificationStatus.MOCKED])).limit(1))
+    if delivery:
+        raise ValueError("邮件已发送或送达待核实，不能改写条款")
+    before = offer_snapshot(offer)
+    report = datetime.fromisoformat(values["report_time"])
+    expiry = _as_utc_aware(datetime.fromisoformat(values["expires_at"]))
+    if report.date() < utc_now().date() or expiry <= utc_now():
+        raise ValueError("报到日期不能早于今天，Offer 有效期须在未来")
+    for key in ("job_title", "company_name", "office_location", "report_location"):
+        setattr(offer, key, values[key].strip())
+    offer.report_time, offer.expires_at = report.date().isoformat(), expiry
+    offer.candidate_email = offer.application.candidate.email
+    offer.terms = {"revision": current + 1, "salary": values["salary"].strip(), "subsidy": values["subsidy"].strip()}
+    missing = missing_offer_terms(offer)
+    if missing:
+        raise ValueError("请补齐条款：" + "、".join(missing))
+    offer.content = build_offer_content(candidate_name=offer.candidate_name, company_name=offer.company_name,
+        job_title=offer.job_title, report_time=offer.report_time, report_location=offer.report_location, office_location=offer.office_location)
+    offer.content += f"\n【薪资】{offer.terms['salary']}\n【补贴】{offer.terms['subsidy']}\n【有效期】{expiry.isoformat()}"
+    offer.status, offer.candidate_token = OfferStatus.PENDING_APPROVAL, None
+    session.add(OfferApproval(offer_id=offer.id, status=OfferApprovalStatus.PENDING, snapshot=offer_snapshot(offer)))
+    write_audit_log(session, actor="HR", action="offer.terms_revised", entity_type="offer", entity_id=offer.id,
+                    before_data=before, after_data=offer_snapshot(offer))
     session.flush()
     return offer
 
 
-def send_offer(
-    session: Session,
-    offer_id: int,
-    *,
-    actor: str = "本地管理员",
-) -> Offer:
-    offer = _get_offer(session, offer_id)
+def approve_offer(session: Session, offer_id: int, *, approver: str = "管理员", reason: str = "单级审批通过", version: int | None = None) -> Offer:
+    offer = lock_record(session, Offer, offer_id)
+    snapshot = offer_snapshot(offer)
+    if version is not None and version != (offer.terms or {}).get("revision", 0):
+        raise ValueError("条款版本已更新，请重新审核")
+    if offer.status == OfferStatus.APPROVED:
+        return offer
+    if offer.status not in {OfferStatus.PENDING_APPROVAL, OfferStatus.DRAFT}:
+        raise ValueError("当前 Offer 状态不允许审批")
+    missing = missing_offer_terms(offer)
+    if missing:
+        raise ValueError("审批前请补齐：" + "、".join(missing))
+    if _as_utc_aware(offer.expires_at) <= utc_now():
+        raise ValueError("Offer 已过期，请更新条款后重新审批")
+    approval = OfferApproval(offer_id=offer.id, status=OfferApprovalStatus.APPROVED, approver=current_actor.get() or approver,
+                            decision_reason=reason, decided_at=utc_now(), snapshot=snapshot)
+    session.add(approval)
+    offer.status = OfferStatus.APPROVED
+    write_audit_log(session, actor=approver, action="offer.approved", entity_type="offer", entity_id=offer.id, after_data=snapshot)
+    session.flush()
+    return offer
+
+
+def return_offer(session: Session, offer_id: int, *, version: int, reason: str) -> Offer:
+    offer = lock_record(session, Offer, offer_id)
+    if offer.status not in {OfferStatus.PENDING_APPROVAL, OfferStatus.APPROVED} or version != (offer.terms or {}).get("revision", 0) or not reason.strip():
+        raise ValueError("请在当前条款版本下填写退回原因")
+    if session.scalar(select(Notification.id).where(Notification.target_type == "offer", Notification.target_id == offer.id, Notification.channel == "email", Notification.status != NotificationStatus.FAILED).limit(1)):
+        raise ValueError("发送结果待核实或已送达，不能退回")
+    offer.status = OfferStatus.DRAFT
+    session.add(OfferApproval(offer_id=offer.id, status=OfferApprovalStatus.REJECTED, approver=current_actor.get() or "HR",
+                             decision_reason=reason, decided_at=utc_now(), snapshot=offer_snapshot(offer)))
+    write_audit_log(session, actor="HR", action="offer.returned", entity_type="offer", entity_id=offer.id, after_data={"reason": reason, "version": version})
+    return offer
+
+
+def send_offer(session: Session, offer_id: int, *, actor: str = "本地管理员") -> Offer:
+    offer = lock_record(session, Offer, offer_id)
+    if offer.status in {OfferStatus.SENT, OfferStatus.ACCEPTED, OfferStatus.DECLINED}:
+        return offer
     if offer.status != OfferStatus.APPROVED:
         raise ValueError("请先审批 Offer，再发放")
-    if not offer.candidate_email:
-        raise ValueError("候选人邮箱缺失，无法发送 Offer")
-
-    token = secrets.token_urlsafe(24)
-    offer.candidate_token = token
-    offer.sent_at = utc_now()
-    offer.status = OfferStatus.SENT
-    subject = f"欢迎你加入 Testin｜{offer.job_title} 录用通知"
-    public_url = f"/offer/{token}"
-    content = f"{offer.content}\n\n请打开确认链接：{public_url}"
-    result = send_email_notification(
-        session,
-        recipient=offer.candidate_email,
-        subject=subject,
-        content=content,
-        target_type="offer",
-        target_id=offer.id,
-    )
-    transition_application(
-        session,
-        offer.application_id,
-        ApplicationStatus.OFFER_SENT,
-        actor=actor,
-        is_human_action=True,
-        reason="Offer 已发放给候选人邮箱",
-    )
-    notify_internal(
-        session,
-        title="Offer 已发放",
-        content=f"{offer.candidate_name} 的 Offer 已发送到 {offer.candidate_email}。",
-        target_type="offer",
-        target_id=offer.id,
-    )
-    write_audit_log(
-        session,
-        actor=actor,
-        action="offer.sent",
-        entity_type="offer",
-        entity_id=offer.id,
-        after_data={"email_status": result.status.value, "candidate_email": offer.candidate_email},
-    )
+    if offer.application.status != ApplicationStatus.OFFER_PENDING:
+        raise ValueError("投递已离开 Offer 阶段，禁止发信")
+    if offer.candidate_email != offer.application.candidate.email:
+        raise ValueError("候选人邮箱已变化，请保存新条款并重新审批收件人")
+    approval = session.scalar(select(OfferApproval).where(OfferApproval.offer_id == offer.id, OfferApproval.status == OfferApprovalStatus.APPROVED).order_by(OfferApproval.id.desc()))
+    if not approval or approval.snapshot != offer_snapshot(offer):
+        raise ValueError("当前条款没有对应审批快照，请重新审批")
+    if missing_offer_terms(offer) or _as_utc_aware(offer.expires_at) <= utc_now():
+        raise ValueError("Offer 条款缺失或已过期")
+    if not offer.candidate_token:
+        offer.candidate_token = secrets.token_urlsafe(24)
+    from app.config import public_url
+    result = send_email_notification(session, recipient=offer.candidate_email,
+        subject=f"欢迎加入 {offer.company_name}｜{offer.job_title} 录用通知",
+        content=f"{offer.content}\n\n请打开确认链接：{public_url('/offer/' + offer.candidate_token)}",
+        target_type="offer", target_id=offer.id, template=f"offer_email_v{(offer.terms or {}).get('revision', 0)}")
+    if result.status in {NotificationStatus.SENT, NotificationStatus.MOCKED}:
+        offer = record_offer_delivery(session, offer_id, result, actor=actor)
     session.flush()
+    return offer
+
+
+def record_offer_delivery(session: Session, offer_id: int, notification: Notification, *, actor: str = "HR") -> Offer:
+    """记录已核实的历史发送事实；即使核实时过期，也不再发信或复活已终止投递。"""
+    offer = lock_record(session, Offer, offer_id)
+    if offer.status == OfferStatus.APPROVED:
+        offer.status, offer.sent_at = OfferStatus.SENT, notification.created_at
+        if offer.application.status == ApplicationStatus.OFFER_PENDING:
+            transition_application(session, offer.application_id, ApplicationStatus.OFFER_SENT, actor=actor,
+                                   is_human_action=True, reason="Offer 送达已确认")
+        if offer.expires_at and _as_utc_aware(offer.expires_at) <= utc_now():
+            offer.status = OfferStatus.EXPIRED
+        write_audit_log(session, actor=actor, action="offer.sent", entity_type="offer", entity_id=offer.id,
+                        after_data={"notification_id": notification.id, "email_status": notification.status.value, "offer_status":offer.status.value})
     return offer
 
 
@@ -267,8 +322,11 @@ def respond_offer(
     offer = session.scalar(select(Offer).where(Offer.candidate_token == token))
     if offer is None:
         raise ValueError("Offer 链接无效")
+    offer = lock_record(session, Offer, offer.id)
+    if offer.status == (OfferStatus.ACCEPTED if accepted else OfferStatus.DECLINED):
+        return offer
     if offer.status != OfferStatus.SENT:
-        raise ValueError("当前 Offer 状态不允许重复确认")
+        raise ValueError("当前 Offer 状态不允许该确认")
     if offer.expires_at and _as_utc_aware(offer.expires_at) < utc_now():
         offer.status = OfferStatus.EXPIRED
         write_audit_log(
@@ -341,29 +399,16 @@ def confirm_onboarding_task(
     task = session.get(OnboardingTask, task_id)
     if task is None:
         raise ValueError("入职任务不存在")
+    application = lock_record(session, Application, task.application_id)
+    if application.status != ApplicationStatus.ONBOARDING:
+        raise ValueError("该投递已结束入职办理，不能修改遗留任务")
+    if task.status == OnboardingStatus.DONE:
+        return task
     task.status = OnboardingStatus.DONE
     task.completed_at = utc_now()
     task.note = note
-    session.flush()
-    remaining = session.scalar(
-        select(OnboardingTask)
-        .where(
-            OnboardingTask.offer_id == task.offer_id,
-            OnboardingTask.status == OnboardingStatus.OPEN,
-        )
-        .limit(1)
-    )
-    if remaining is None:
-        application = task.offer.application
-        if application.status == ApplicationStatus.ONBOARDING:
-            transition_application(
-                session,
-                application.id,
-                ApplicationStatus.JOINED,
-                actor=actor,
-                is_human_action=True,
-                reason="入职任务完成，HR 确认到岗",
-            )
+    from app.services.periodic import close_legacy_followups
+    close_legacy_followups(session)
     write_audit_log(
         session,
         actor=actor,
@@ -407,46 +452,55 @@ def send_email_notification(
     target_id: int | None = None,
     template: str = "offer_email",
 ) -> Notification:
-    smtp_host = os.getenv("SMTP_HOST", "").strip()
-    status = NotificationStatus.MOCKED
-    response: dict[str, Any] = {"mode": "mock", "reason": "SMTP 未配置"}
-    error = None
+    # 先持久化发送声明，崩溃后按待核实处理，避免刷新或重试重复发信。
+    session.flush()
+    session.execute(update(Notification).where(Notification.id == -1).values(id=Notification.id))
+    previous = session.scalar(select(Notification).where(
+        Notification.channel == "email", Notification.target_type == target_type,
+        Notification.target_id == target_id, Notification.template == template,
+    ).order_by(Notification.id.desc())) if target_id is not None else None
+    if previous and previous.status != NotificationStatus.FAILED:
+        return previous
+    if previous:
+        recipient, subject, content = previous.recipient, previous.subject, previous.content
+    notification = Notification(channel="email", recipient=recipient, subject=subject, content=content,
+        target_type=target_type, target_id=target_id, template=template, status=NotificationStatus.SENDING)
+    session.add(notification)
+    session.commit()
+    smtp_host = get_setting("SMTP_HOST").strip()
+    notification.status = NotificationStatus.MOCKED
+    notification.provider_response = {"mode": "mock", "reason": "SMTP 未配置"}
     if smtp_host:
+        sending_data, accepted = False, False
         try:
             message = EmailMessage()
             message["Subject"] = subject
-            message["From"] = os.getenv("SMTP_FROM") or os.getenv("SMTP_USERNAME") or "no-reply@testin.local"
+            message["From"] = get_setting("SMTP_FROM") or get_setting("SMTP_USERNAME")
             message["To"] = recipient
             message.set_content(content)
-            port = int(os.getenv("SMTP_PORT", "587"))
-            username = os.getenv("SMTP_USERNAME", "")
-            password = os.getenv("SMTP_PASSWORD", "")
-            with smtplib.SMTP(smtp_host, port, timeout=10) as smtp:
-                smtp.starttls()
-                if username:
-                    smtp.login(username, password)
-                smtp.send_message(message)
-            status = NotificationStatus.SENT
-            response = {"mode": "smtp", "host": smtp_host}
-        except Exception as exc:  # noqa: BLE001 - 邮件失败必须可审计但不破坏数据库
-            status = NotificationStatus.FAILED
-            error = str(exc)
-            response = {"mode": "smtp", "host": smtp_host}
-
-    notification = Notification(
-        channel="email",
-        recipient=recipient,
-        target_type=target_type,
-        target_id=target_id,
-        template=template,
-        status=status,
-        subject=subject,
-        content=content,
-        provider_response=response,
-        error_message=error,
-    )
-    session.add(notification)
-    session.flush()
+            use_ssl = (get_setting("SMTP_SSL") or get_setting("SMTP_USE_SSL", "false")).lower() in {"true", "1", "yes"}
+            port = int(get_setting("SMTP_PORT") or ("465" if use_ssl else "587"))
+            factory = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+            with factory(smtp_host, port, timeout=10) as smtp:
+                if not use_ssl:
+                    smtp.starttls()
+                if get_setting("SMTP_USERNAME"):
+                    smtp.login(get_setting("SMTP_USERNAME"), get_setting("SMTP_PASSWORD"))
+                sending_data = True
+                refused = smtp.send_message(message)
+                if refused:
+                    raise smtplib.SMTPRecipientsRefused(refused)
+                accepted = True
+            notification.status = NotificationStatus.SENT
+        except Exception as exc:
+            definitive = isinstance(exc, (smtplib.SMTPRecipientsRefused, smtplib.SMTPDataError, smtplib.SMTPSenderRefused))
+            notification.status = NotificationStatus.SENT if accepted else (
+                NotificationStatus.UNKNOWN if sending_data and not definitive else NotificationStatus.FAILED)
+            notification.error_message = f"SMTP {type(exc).__name__}；" + ("送达结果待 HR 核实" if notification.status == NotificationStatus.UNKNOWN else "请检查设置后重试")
+        notification.provider_response = {"mode": "smtp", "transport": "ssl" if (get_setting("SMTP_SSL") or get_setting("SMTP_USE_SSL", "false")).lower() in {"true", "1", "yes"} else "starttls"}
+    write_audit_log(session, actor="通知程序", action="notification.attempted", entity_type="notification", entity_id=notification.id,
+                    after_data={"status": notification.status.value, "target_type": target_type, "target_id": target_id})
+    session.commit()
     return notification
 
 
@@ -605,8 +659,9 @@ def _ensure_onboarding_tasks(session: Session, offer: Offer) -> None:
     due = utc_now() + timedelta(days=3)
     tasks = [
         "确认入职时间与报到地址",
-        "准备账号、工位和入职材料",
-        "HR 人工确认候选人到岗",
+        "核对入职材料",
+        "准备账号",
+        "准备工位",
     ]
     for title in tasks:
         session.add(

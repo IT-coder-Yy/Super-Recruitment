@@ -23,20 +23,20 @@
           </div>
         </div>
       </div>
-      {% if rows %}<nav class="application-switcher" aria-label="选择投递岗位">{% for row in rows %}<a class="{% if current and current.id == row.id %}is-active{% endif %}" href="/candidates/{{ candidate.id }}?application_id={{ row.id }}" {% if current and current.id == row.id %}aria-current="true"{% endif %}><strong>{{ row.job_title }}</strong><span>{{ row.status_label }}</span></a>{% endfor %}</nav>{% endif %}
+      {% if rows %}<nav class="application-switcher" aria-label="选择投递岗位">{% for row in rows %}<a class="{% if current and current.id == row.id %}is-active{% endif %}" href="/candidates/{{ candidate.id }}?application_id={{ row.id }}" {% if current and current.id == row.id %}aria-current="true"{% endif %}><strong>{{ row.job_title }}</strong><span>{{ row.recruitment_type_label }} · {{ row.status_label }}</span></a>{% endfor %}</nav>{% endif %}
     </section>
 
     <details class="work-surface workflow-disclosure">
       <summary><span><strong>补充资料</strong><small>{% if profile.missing_fields %}{{ profile.missing_fields|length }} 项信息待补充{% else %}修正联系方式、技能与沟通记录{% endif %}</small></span><span class="muted">编辑</span></summary>
       <div class="surface-body">
-        <form method="post" action="/api/candidates/{{ candidate.id }}/supplement">
+        <form method="post" action="/api/candidates/{{ candidate.id }}/supplement"><input type="hidden" name="version" value="{{ (candidate.structured_data or {}).get('revision',0) }}">{% if current %}<input type="hidden" name="application_id" value="{{ current.id }}">{% endif %}
           <div class="form-grid">
             <div class="field"><label for="supplement-name">姓名</label><input class="input" id="supplement-name" name="name" value="{{ candidate.name or '' }}" placeholder="待补充姓名"></div>
             <div class="field"><label for="supplement-phone">手机号</label><input class="input" type="tel" id="supplement-phone" name="phone" value="{{ candidate.phone or '' }}" placeholder="待补充手机号"></div>
             <div class="field"><label for="supplement-email">邮箱</label><input class="input" type="email" id="supplement-email" name="email" value="{{ candidate.email or '' }}" placeholder="待补充邮箱"></div>
             <div class="field"><label for="supplement-skills">技能</label><input class="input" id="supplement-skills" name="skills" value="{{ profile.skills|join('；') if profile.skills else '' }}" placeholder="Python；FastAPI；SQL"></div>
           </div>
-          <div class="field"><label for="supplement-experience">经历</label><textarea class="textarea" id="supplement-experience" name="experience" placeholder="每行一条项目、实习或工作经历"></textarea></div>
+          <div class="field"><label for="supplement-experience">经历</label><textarea class="textarea" id="supplement-experience" name="experience" placeholder="每行一条项目、实习或工作经历">{% for item in profile.projects %}{{ item.description }}{{ "\n" if not loop.last else "" }}{% endfor %}</textarea></div>
           <div class="field"><label for="supplement-chat">聊天摘要</label><textarea class="textarea" id="supplement-chat" name="chat_summary" placeholder="补充初步沟通、到岗时间、意向城市等">{{ profile.chat_summary if profile.chat_summary != '暂无聊天记录，本地上传任务可后续补充。' else '' }}</textarea></div>
           <div class="field"><label for="supplement-note">备注</label><textarea class="textarea" id="supplement-note" name="note" placeholder="仅内部可见的补充备注">{{ profile.note if profile.note is defined else '' }}</textarea></div>
           <div class="form-actions"><button class="button button-primary" type="submit">保存补充资料</button></div>
@@ -133,6 +133,9 @@
         </section>
 
         <section class="tab-panel" data-tab-panel="evaluation">
+          {% for e in evaluation_history if current and e.application_id == current.id %}
+          <details class="technical-details"><summary>评估 #{{ e.id }} · {{ e.model }} · {{ e.total_score }} 分 · {{ '已过期' if e.is_stale else '已保存' }} · {{ e.created_at }}</summary><p>{{ e.reason }}</p><pre>{{ e.input_snapshot|default({'说明':'历史输入版本未记录'},true)|tojson(indent=2) }}</pre></details>
+          {% endfor %}
           {% if current and current.dimensions %}
           <div class="stack">
             <div class="notice">
@@ -156,7 +159,7 @@
                     <td>{{ item.label or item.name }}</td>
                     <td><strong>{{ item.score|round(0)|int }}</strong></td>
                     <td>{{ item.jd_requirement or '未提供' }}</td>
-                    <td>{{ item.resume_evidence or '未找到明确证据' }}</td>
+                    <td>{{ item.resume_evidence or '未找到明确证据' }}{% for ref in item.references|default([]) %}<small>{{ ref.id }}：{{ ref.quote }}</small>{% endfor %}</td>
                     <td>{{ ((item.confidence or 0) * 100)|round(0)|int }}%</td>
                   </tr>
                   {% endfor %}
@@ -183,7 +186,7 @@
           <div class="info-grid">
             <div class="info-item"><span>面试时间</span><strong>{{ current.interview_time if current and current.interview_time else '未确认' }}</strong></div>
             <div class="info-item"><span>会议状态</span><strong>{% if current and current.meeting_url %}<a href="{{ current.meeting_url }}">Mock 腾讯会议</a>{% else %}未创建{% endif %}</strong></div>
-            <div class="info-item"><span>面试安排</span><strong><a href="/interviews">查看排期与反馈</a></strong></div>
+            <div class="info-item"><span>面试安排</span><strong><a href="/interviews?recruitment_type={{ current.recruitment_type if current else recruitment_type }}">查看排期与反馈</a></strong></div>
           </div>
         </section>
 
@@ -215,20 +218,25 @@
       <header class="surface-header">
         <div>
           <h2 class="surface-title">{{ row.job_title }}</h2>
-          <p class="card-subtitle">{{ row.channel }} · {{ row.owner }}</p>
+          <p class="card-subtitle">{{ row.recruitment_type_label }} · {{ row.channel }} · {{ row.owner }}</p>
         </div>
         <span class="status status-primary">{{ row.status_label }}</span>
       </header>
       <div class="surface-body">
         <div class="decision-bar">
           <p>AI 只提供辅助意见，最终决定由 HR 或面试官作出。</p>
+          {% if row.evaluation_stale %}<p class="notice notice-warning">资料或 JD 已更新，旧评估已过期，请重评后再复核。</p>{% endif %}
+          {% if row.evaluation_attempt and row.evaluation_attempt.status == 'failed' %}<p class="notice notice-warning">评估尝试 #{{ row.evaluation_attempt.id }} 失败：{{ row.evaluation_attempt.error }}。下方保留原评估，可重新评估。</p>{% endif %}
+          <p class="muted">测评：{{ {'passed':'通过','failed':'不通过','skipped':'跳过'}.get(row.exam_decisions.get('assessment',{}).get('result'), '历史未记录 / 未办理') }}；笔试：{{ {'passed':'通过','failed':'不通过','skipped':'跳过'}.get(row.exam_decisions.get('written',{}).get('result'), '历史未记录 / 未办理') }}</p>
           <div class="button-row">
             <form method="post" action="/api/applications/{{ row.id }}/evaluate"><button class="button" type="submit">运行 AI 评估</button></form>
-            {% if row.status == 'evaluation_review' %}
+            {% if row.status in ['evaluation_review','on_hold'] %}
             <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="on_hold"><input type="hidden" name="reason" value="HR 暂缓"><button class="button" type="submit">暂缓</button></form>
             <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="rejected"><input type="hidden" name="reason" value="HR 人工淘汰"><button class="button button-danger" type="submit" data-confirm="淘汰候选人需要人工确认，是否继续？">淘汰</button></form>
-            <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="interview_pending"><input type="hidden" name="reason" value="HR 人工确认进入面试"><button class="button button-primary" type="submit">进入面试</button></form>
-            {% elif row.status == 'interview_pending' %}
+            <form method="post" action="/api/applications/{{ row.id }}/decision"><input type="hidden" name="status" value="{{ 'interview_pending' if row.recruitment_type == 'internship' else 'assessment_pending' }}"><input type="hidden" name="reason" value="HR 人工确认初筛通过"><button class="button button-primary" type="submit">{{ '进入面试' if row.recruitment_type == 'internship' else '进入测评' }}</button></form>
+            {% elif row.status in ['assessment_pending','written_pending'] %}
+            <a class="button button-primary" href="/exams?application_id={{ row.id }}">发放试卷 / 记录结论</a>
+            {% elif row.status in ['interview_pending','next_round','scheduling'] %}
             <form method="post" action="/api/applications/{{ row.id }}/schedule"><button class="button button-primary" type="submit">生成面试时段</button></form>
             {% endif %}
           </div>

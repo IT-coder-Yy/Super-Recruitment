@@ -4,7 +4,8 @@
   if (!root) return;
   const indicator = document.querySelector("[data-live-status]");
   const updatedAt = document.querySelector("[data-updated-at]");
-  const stages = [["applications", "投递"], ["screened", "初筛"], ["interviews", "面试"], ["offers", "Offer"], ["onboarded", "入职"]];
+  const stages = [["applications", "投递"], ["screened", "初筛"], ["assessments", "测评"], ["written", "笔试"], ["interviews", "面试"], ["offers", "Offer"], ["onboarded", "入职"]]
+    .filter(([key]) => root.querySelector('[data-funnel="' + key + '"]'));
   let refreshing = false;
   function textElement(tag, value, className) {
     const el = document.createElement(tag);
@@ -13,6 +14,12 @@
     return el;
   }
   function render(data) {
+    document.querySelectorAll('[data-recruitment-metric]').forEach(el => {
+      el.textContent = data.by_recruitment_type[el.dataset.recruitmentKind][el.dataset.recruitmentMetric];
+    });
+    document.querySelectorAll('[data-exam-kind]').forEach(el => {
+      el.textContent = data.exam_counts[el.dataset.examKind][el.dataset.examResult];
+    });
     document.querySelectorAll("[data-metric]").forEach(el => {
       const value = data[el.dataset.metric];
       if (typeof value === "number") el.textContent = value.toLocaleString("zh-CN");
@@ -56,7 +63,7 @@
       channels.appendChild(row);
     });
     if (!data.channels.length) channels.appendChild(textElement("p", "暂无渠道数据", "muted"));
-    channels.appendChild(textElement("p", "统计范围：当前全部来源记录。", "muted"));
+    channels.appendChild(textElement("p", "统计范围：当前招聘类型的投递来源。", "muted"));
     indicator.classList.remove("is-offline", "status-warning");
     indicator.classList.add("status-success");
     indicator.textContent = "实时更新中";

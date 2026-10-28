@@ -1,0 +1,9 @@
+姓名：顾言
+手机号：13900000006
+邮箱：synthetic-r06@example.test
+教育：虚构大学计算机本科在读
+技能：Java、Spring Boot、SQL、JUnit
+项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。
+实习：虚构丙公司 Java 后端两个月。
+意向：每周可实习四天
+声明：所有个人与公司信息为虚构测试数据，禁止真实联系。

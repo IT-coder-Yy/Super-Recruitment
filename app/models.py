@@ -44,6 +44,8 @@ class ApplicationStatus(str, Enum):
     DEDUPLICATED = "deduplicated"
     EVALUATING = "evaluating"
     EVALUATION_REVIEW = "evaluation_review"
+    ASSESSMENT_PENDING = "assessment_pending"
+    WRITTEN_PENDING = "written_pending"
     INTERVIEW_PENDING = "interview_pending"
     ON_HOLD = "on_hold"
     REJECTED = "rejected"
@@ -58,6 +60,7 @@ class ApplicationStatus(str, Enum):
     OFFER_DECLINED = "offer_declined"
     ONBOARDING = "onboarding"
     JOINED = "joined"
+    ONBOARDING_WITHDRAWN = "onboarding_withdrawn"
 
 
 class DedupStatus(str, Enum):
@@ -117,6 +120,8 @@ class NotificationStatus(str, Enum):
     MOCKED = "mocked"
     SENT = "sent"
     FAILED = "failed"
+    UNKNOWN = "unknown"
+    SENDING = "sending"
 
 
 class ExportRunStatus(str, Enum):
@@ -328,6 +333,7 @@ class Job(TimestampMixin, Base):
     platform: Mapped[str] = mapped_column(String(50), nullable=False)
     source_job_id: Mapped[str] = mapped_column(String(120), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
+    recruitment_type: Mapped[str] = mapped_column(String(20), default="autumn", server_default="autumn", nullable=False)
     department: Mapped[str | None] = mapped_column(String(120))
     owner: Mapped[str | None] = mapped_column(String(120))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -369,6 +375,7 @@ class Application(TimestampMixin, Base):
     __tablename__ = "applications"
     __table_args__ = (
         UniqueConstraint("source_id", name="uq_application_source"),
+        UniqueConstraint("candidate_id", "job_id", name="uq_application_candidate_job"),
         Index("ix_applications_candidate_id", "candidate_id"),
         Index("ix_applications_job_status", "job_id", "status"),
         Index("ix_applications_owner_status", "owner", "status"),
@@ -407,15 +414,49 @@ class Application(TimestampMixin, Base):
     source: Mapped[CandidateSource | None] = relationship(
         back_populates="application"
     )
+    source_links: Mapped[list[ApplicationSource]] = relationship(cascade="all, delete-orphan")
     evaluations: Mapped[list[Evaluation]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
+    evaluation_attempts: Mapped[list[EvaluationAttempt]] = relationship(cascade="all, delete-orphan")
     interviews: Mapped[list[Interview]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
     offers: Mapped[list[Offer]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
+
+
+class ApplicationSource(Base):
+    __tablename__ = "application_sources"
+    source_id: Mapped[int] = mapped_column(ForeignKey("candidate_sources.id", ondelete="CASCADE"), primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), index=True)
+    source: Mapped[CandidateSource] = relationship()
+
+
+class ExamResource(TimestampMixin, Base):
+    __tablename__ = "exam_resources"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="RESTRICT"))
+    request_key: Mapped[str | None] = mapped_column(String(64), unique=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(200))
+    url: Mapped[str] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    file_path: Mapped[str | None] = mapped_column(Text)
+    filename: Mapped[str | None] = mapped_column(String(255))
+
+
+class ExamDispatch(TimestampMixin, Base):
+    __tablename__ = "exam_dispatches"
+    __table_args__ = (UniqueConstraint("application_id", "resource_id", name="uq_exam_dispatch"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), index=True)
+    resource_id: Mapped[int] = mapped_column(ForeignKey("exam_resources.id", ondelete="RESTRICT"))
+    kind: Mapped[str] = mapped_column(String(20))
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSON)
+    resource: Mapped[ExamResource] = relationship()
+    application: Mapped[Application] = relationship()
 
 
 class Evaluation(TimestampMixin, Base):
@@ -446,9 +487,21 @@ class Evaluation(TimestampMixin, Base):
     total_score: Mapped[float] = mapped_column(Float, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     missing_information: Mapped[list[str] | None] = mapped_column(JSON)
+    input_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    is_stale: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     application: Mapped[Application] = relationship(back_populates="evaluations")
     job_version: Mapped[JobVersion] = relationship(back_populates="evaluations")
+
+
+class EvaluationAttempt(TimestampMixin, Base):
+    __tablename__ = "evaluation_attempts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), index=True)
+    evaluation_id: Mapped[int | None] = mapped_column(ForeignKey("evaluations.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    input_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(Text)
 
 
 class Interview(TimestampMixin, Base):
@@ -549,6 +602,7 @@ class Offer(TimestampMixin, Base):
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     candidate_token: Mapped[str | None] = mapped_column(String(255), unique=True)
     response_note: Mapped[str | None] = mapped_column(Text)
+    terms: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     application: Mapped[Application] = relationship(back_populates="offers")
     approvals: Mapped[list[OfferApproval]] = relationship(
@@ -575,6 +629,7 @@ class OfferApproval(TimestampMixin, Base):
     )
     decision_reason: Mapped[str | None] = mapped_column(Text)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     offer: Mapped[Offer] = relationship(back_populates="approvals")
 

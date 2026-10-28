@@ -16,13 +16,13 @@
         <tbody>
           {% for offer in offers %}
           <tr {% if selected_offer and offer.id == selected_offer.id %}class="is-selected"{% endif %}>
-            <td class="workflow-description"><a href="/offers?offer_id={{ offer.id }}" {% if selected_offer and offer.id == selected_offer.id %}aria-current="true"{% endif %}>{{ offer.candidate_name }}</a><small>{{ offer.job_title }}</small><small>{{ offer.candidate_email or '邮箱缺失' }}</small></td>
+            <td class="workflow-description"><a href="/offers?offer_id={{ offer.id }}&recruitment_type={{ offer.application.job.recruitment_type }}" {% if selected_offer and offer.id == selected_offer.id %}aria-current="true"{% endif %}>{{ offer.candidate_name }}</a><small>{{ offer.job_title }} · {{ recruitment_types[offer.application.job.recruitment_type] }}</small><small>{{ offer.candidate_email or '邮箱缺失' }}</small></td>
             <td><span class="status {% if offer.status.value in ['accepted','approved','sent'] %}status-success{% elif offer.status.value in ['declined','expired'] %}status-danger{% else %}status-warning{% endif %}">{{ offer_labels.get(offer.status.value, offer.status.value) }}</span></td>
             <td class="action-cell">
               <div class="button-row">
-                <a class="button button-sm" href="/offers?offer_id={{ offer.id }}">查看</a>
+                <a class="button button-sm" href="/offers?offer_id={{ offer.id }}&recruitment_type={{ offer.application.job.recruitment_type }}">查看</a>
                 {% if offer.status.value == 'pending_approval' %}
-                <form method="post" action="/api/offers/{{ offer.id }}/approve"><button class="button button-sm" type="submit">审批通过</button></form>
+                <form method="post" action="/api/offers/{{ offer.id }}/approve"><input type="hidden" name="version" value="{{ (offer.terms or {}).get('revision',0) }}"><button class="button button-sm" type="submit">审批通过</button></form>
                 {% endif %}
                 {% if offer.status.value == 'approved' %}
                 <form method="post" action="/api/offers/{{ offer.id }}/send"><button class="button button-primary button-sm" type="submit">发到邮箱</button></form>
@@ -32,7 +32,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="3"><div class="empty-state"><h3>暂无 Offer</h3><p>在面试反馈中选择“发 Offer”后，会自动进入这里。</p><a class="button" href="/interviews">查看面试进度</a></div></td></tr>
+          <tr><td colspan="3"><div class="empty-state"><h3>暂无 Offer</h3><p>在面试反馈中选择“发 Offer”后，会自动进入这里。</p><a class="button" href="/interviews?recruitment_type={{ recruitment_type }}">查看面试进度</a></div></td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -53,21 +53,33 @@
       </div>
 
       <section class="tab-panel is-active" data-tab-panel="terms">
+        {% if selected_offer.status.value in ['draft','pending_approval','approved'] %}
+        <form method="post" action="/api/offers/{{ selected_offer.id }}/terms" class="form-grid">
+          <input type="hidden" name="version" value="{{ (selected_offer.terms or {}).get('revision',0) }}">
+          {% for key,label in [('company_name','公司'),('job_title','岗位'),('office_location','办公地址'),('report_location','报到地址')] %}
+          <label class="field">{{ label }}<input class="input" name="{{ key }}" value="{{ selected_offer[key] or '' }}" required></label>{% endfor %}
+          {% for key,label in [('salary','薪资'),('subsidy','补贴，无补贴请填无')] %}<label class="field">{{ label }}<input class="input" name="{{ key }}" value="{{ (selected_offer.terms or {}).get(key,'') }}" required></label>{% endfor %}
+          <label class="field">报到日期<input class="input" name="report_time" type="date" value="{{ selected_offer.report_time or '' }}" required></label>
+          <label class="field">有效期（UTC）<input class="input" name="expires_at" type="datetime-local" value="{{ selected_offer.expires_at.strftime('%Y-%m-%dT%H:%M') if selected_offer.expires_at else '' }}" required></label>
+          <button class="button button-primary" type="submit">保存并提交审批</button>
+        </form>
+        {% if selected_offer.status.value in ['pending_approval','approved'] %}<form method="post" action="/api/offers/{{ selected_offer.id }}/return" class="inline-form"><input type="hidden" name="version" value="{{ (selected_offer.terms or {}).get('revision',0) }}"><label class="field">退回原因<input class="input" name="reason" required></label><button class="button" type="submit">退回修改</button></form>{% endif %}
+        {% endif %}
         <div class="info-grid offer-info-grid">
           <div class="info-item"><span>候选人</span><strong>{{ selected_offer.candidate_name }}</strong></div>
           <div class="info-item"><span>岗位</span><strong>{{ selected_offer.job_title }}</strong></div>
           <div class="info-item"><span>入职主体</span><strong>{{ selected_offer.company_name }}</strong></div>
-          <div class="info-item"><span>工作地点</span><strong>{{ selected_offer.office_location or 'Testin 项目办公室' }}</strong></div>
-          <div class="info-item"><span>薪资/补贴</span><strong>待 HR 填写</strong></div>
-          <div class="info-item"><span>职级</span><strong>待 HR 填写</strong></div>
-          <div class="info-item"><span>预计入职日期</span><strong>待 HR 填写</strong></div>
+          <div class="info-item"><span>工作地点</span><strong>{{ selected_offer.office_location or '待填写' }}</strong></div>
+          <div class="info-item"><span>薪资/补贴</span><strong>{{ (selected_offer.terms or {}).get("salary","待填写") }} / {{ (selected_offer.terms or {}).get("subsidy","待填写") }}</strong></div>
+
+          <div class="info-item"><span>预计入职日期</span><strong>{{ selected_offer.report_time or "待填写" }}</strong></div>
           <div class="info-item"><span>有效期</span><strong>{{ selected_offer.expires_at or '待确认' }}</strong></div>
           <div class="info-item"><span>收件邮箱</span><strong>{{ selected_offer.candidate_email or '待补充' }}</strong></div>
         </div>
-        <div class="notice notice-warning"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>缺失条款：{{ offer_detail.pending_terms|join('、') }}。这些字段不会由 AI 自动决定。</div>
+        {% if offer_detail.pending_terms %}<p class="notice notice-warning">缺失条款：{{ offer_detail.pending_terms|join("、") }}</p>{% endif %}
         <div class="button-row">
           <form method="post" action="/api/offers/{{ selected_offer.id }}/generate-draft"><button class="button" type="submit">生成邮件草稿 / 审批摘要</button></form>
-          {% if selected_offer.status.value == 'pending_approval' %}<form method="post" action="/api/offers/{{ selected_offer.id }}/approve"><button class="button" type="submit">审批通过</button></form>{% endif %}
+          {% if selected_offer.status.value == 'pending_approval' %}<form method="post" action="/api/offers/{{ selected_offer.id }}/approve"><input type="hidden" name="version" value="{{ (selected_offer.terms or {}).get('revision',0) }}"><button class="button" type="submit">审批通过</button></form>{% endif %}
           {% if selected_offer.status.value == 'approved' %}<form method="post" action="/api/offers/{{ selected_offer.id }}/send"><button class="button button-primary" type="submit">发送 Offer</button></form>{% endif %}
         </div>
       </section>

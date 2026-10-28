@@ -4,36 +4,44 @@
 {% block page_subtitle %}招聘漏斗、Offer 转化、入职率与岗位进度{% endblock %}
 {% block topbar_actions %}<span class="status status-success" data-live-status>实时更新中</span>{% endblock %}
 {% block content %}
-<div class="workflow-page workflow-dashboard" data-dashboard data-endpoint="/api/dashboard/summary" data-interval="10000">
+<div class="workflow-page workflow-dashboard" data-dashboard data-endpoint="/api/dashboard/summary?recruitment_type={{ recruitment_type }}" data-interval="10000">
   <div class="toolbar" aria-label="看板范围">
-    <span class="status status-primary">全部岗位 · 累计数据</span>
-    <span class="toolbar-spacer"></span><span class="muted">最后更新：<span data-updated-at>刚刚</span></span><a class="button button-sm" href="/api/exports/recruitment.xlsx">导出数据</a>
+    <span class="status status-primary">{{ recruitment_types[recruitment_type] }}岗位 · 累计数据</span>
+    <span class="toolbar-spacer"></span><span class="muted">最后更新：<span data-updated-at>刚刚</span></span><a class="button button-sm" href="/api/exports/recruitment.xlsx?recruitment_type={{ recruitment_type }}">导出数据</a>
   </div>
   <section class="metrics-grid" aria-label="招聘核心指标">
-    {% for label,key,help in [('候选人','total_candidates','当前候选人主记录'),('投递','applications','全部岗位投递'),('进入面试','interviews','已进入面试流程'),('待办/异常','overdue','未完成跟进任务')] %}
+    {% for label,key,help in [('候选人','total_candidates','当前候选人主记录'),('投递','applications','当前范围投递'),('进入面试','interviews','已进入面试流程'),('待办/异常','overdue','未完成跟进任务')] %}
     <article class="metric-card"><div class="metric-top"><span class="metric-label">{{ label }}</span><span class="metric-state {% if key == 'overdue' and summary[key] %}is-danger{% endif %}">{{ help }}</span></div><div class="metric-value {% if key == 'overdue' and summary[key] %}text-danger{% endif %}" data-metric="{{ key }}">{{ summary[key] }}</div></article>
     {% endfor %}
   </section>
+  {% if recruitment_type != 'internship' %}
+  <section class="work-surface"><header class="surface-header"><h2>测评与笔试</h2><p class="card-subtitle">发放与结论分别统计；Mock 发放计入，历史未记录不视为通过</p></header><div class="table-wrap"><table class="data-table"><thead><tr><th>阶段</th><th>已发放</th><th>通过</th><th>不通过</th><th>跳过</th><th>历史未记录</th></tr></thead><tbody>{% for kind,label in [('assessment','测评'),('written','笔试')] %}<tr><td>{{ label }}</td>{% for result in ['sent','passed','failed','skipped','historical_unrecorded'] %}<td data-exam-kind="{{ kind }}" data-exam-result="{{ result }}">{{ summary.exam_counts[kind][result] }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></section>
+  {% endif %}
   <section class="dashboard-grid">
-    <article class="work-surface"><header class="surface-header"><div><h2 class="surface-title">招聘漏斗</h2><p class="card-subtitle">每个阶段均显示精确人数</p></div></header><div class="surface-body">
+    <article class="work-surface"><header class="surface-header"><div><h2 class="surface-title">招聘漏斗</h2><p class="card-subtitle">按投递统计曾到达阶段；实习自动跳过测评与笔试</p></div></header><div class="surface-body">
       <div class="funnel" role="img" aria-label="招聘漏斗：投递 {{ summary.funnel.applications }}，初筛 {{ summary.funnel.screened }}，面试 {{ summary.funnel.interviews }}，Offer {{ summary.funnel.offers }}，入职 {{ summary.funnel.onboarded }}">
       {% set max_funnel = [summary.funnel.applications, summary.funnel.screened, summary.funnel.interviews, summary.funnel.offers, summary.funnel.onboarded, 1]|max %}
-      {% for label,key in [('投递','applications'),('初筛','screened'),('面试','interviews'),('Offer','offers'),('入职','onboarded')] %}<div class="funnel-step"><div class="funnel-bar" data-funnel="{{ key }}" style="height:{{ [38, (summary.funnel[key] * 142 / max_funnel)|round|int]|max }}px"><span class="funnel-value" data-funnel-value>{{ summary.funnel[key] }}</span></div><span class="funnel-name">{{ label }}</span></div>{% endfor %}
+      {% for label,key in [('投递','applications'),('初筛','screened'),('测评','assessments'),('笔试','written'),('面试','interviews'),('Offer','offers'),('入职','onboarded')] if recruitment_type != 'internship' or key not in ['assessments','written'] %}<div class="funnel-step"><div class="funnel-bar" data-funnel="{{ key }}" style="height:{{ [38, (summary.funnel[key] * 142 / max_funnel)|round|int]|max }}px"><span class="funnel-value" data-funnel-value>{{ summary.funnel[key] }}</span></div><span class="funnel-name">{{ label }}</span></div>{% endfor %}
       </div>
-      <table class="data-table chart-table"><thead><tr><th>阶段</th><th>人数</th></tr></thead><tbody>{% for label,key in [('投递','applications'),('初筛','screened'),('面试','interviews'),('Offer','offers'),('入职','onboarded')] %}<tr><td>{{ label }}</td><td data-metric="{{ key }}">{{ summary.funnel[key] }}</td></tr>{% endfor %}</tbody></table>
+      <table class="data-table chart-table"><thead><tr><th>阶段</th><th>人数</th></tr></thead><tbody>{% for label,key in [('投递','applications'),('初筛','screened'),('测评','assessments'),('笔试','written'),('面试','interviews'),('Offer','offers'),('入职','onboarded')] if recruitment_type != 'internship' or key not in ['assessments','written'] %}<tr><td>{{ label }}</td><td data-metric="{{ key }}">{{ summary.funnel[key] }}</td></tr>{% endfor %}</tbody></table>
     </div></article>
     <article class="work-surface"><header class="surface-header"><div><h2 class="surface-title">渠道简历量</h2><p class="card-subtitle">按来源自动归集</p></div></header><div class="surface-body bar-chart" data-dashboard-channels>
       {% set max_channel = summary.channels|map(attribute='count')|max|default(1, true) %}
       {% for item in summary.channels %}<div class="bar-row"><span>{{ item.name }}</span><div class="bar-track" aria-hidden="true"><div class="bar-fill" style="width:{{ item.count * 100 / max_channel }}%"></div></div><span class="bar-value">{{ item.count }}</span></div>{% else %}<div class="empty-state"><h3>暂无渠道数据</h3></div>{% endfor %}
-      <p class="muted">统计范围：当前全部来源记录。</p>
+      <p class="muted">统计范围：当前招聘类型的投递来源。</p>
     </div></article>
   </section>
   <section class="metrics-grid" style="margin-top:16px" aria-label="Offer 与入职指标">
     <article class="metric-card"><div class="metric-top"><span class="metric-label">Offer 数</span><span class="metric-state">已创建 Offer</span></div><div class="metric-value" data-metric="total_offers">{{ summary.total_offers }}</div></article>
+    {% if recruitment_type != 'all' %}
     <article class="metric-card"><div class="metric-top"><span class="metric-label">Offer 接受率</span><span class="metric-state">接受 / 已发送</span></div><div class="metric-value"><span data-metric="offer_acceptance_rate">{{ summary.offer_acceptance_rate }}</span>%</div></article>
     <article class="metric-card"><div class="metric-top"><span class="metric-label">入职率</span><span class="metric-state">到岗 / 接受 Offer</span></div><div class="metric-value"><span data-metric="joined_rate">{{ summary.joined_rate }}</span>%</div></article>
+    {% endif %}
     <article class="metric-card"><div class="metric-top"><span class="metric-label">待入职事项</span><span class="metric-state {% if summary.onboarding_open %}is-warning{% endif %}">尚未完成</span></div><div class="metric-value" data-metric="onboarding_open">{{ summary.onboarding_open }}</div></article>
   </section>
+  {% if recruitment_type == 'all' %}
+  <section class="work-surface workflow-table" style="margin-top:16px"><header class="surface-header"><div><h2 class="surface-title">分类型转化率</h2><p class="card-subtitle">秋招与实习分别计算，避免混合流程影响比较。</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>招聘类型</th><th>Offer 转化率</th><th>Offer 接受率</th><th>入职率</th></tr></thead><tbody>{% for kind in ['autumn','internship'] %}<tr><td>{{ recruitment_types[kind] }}</td>{% for key in ['offer_conversion_rate','offer_acceptance_rate','joined_rate'] %}<td><span data-recruitment-metric="{{ key }}" data-recruitment-kind="{{ kind }}">{{ summary.by_recruitment_type[kind][key] }}</span>%</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></section>
+  {% endif %}
   <section class="work-surface workflow-table" style="margin-top:16px"><header class="surface-header"><div><h2 class="surface-title">岗位招聘进度</h2><p class="card-subtitle">各岗位累计收到的投递记录</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>岗位</th><th>累计投递</th></tr></thead><tbody data-dashboard-jobs>{% for item in summary.jobs %}<tr><td>{{ item.name }}</td><td>{{ item.count }}</td></tr>{% else %}<tr><td colspan="2">暂无岗位数据</td></tr>{% endfor %}</tbody></table></div></section>
 </div>
 {% endblock %}

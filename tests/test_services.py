@@ -130,7 +130,7 @@ def test_user_model_enforces_case_insensitive_identity(
     assert stored.id == user.id
 
 
-def test_missing_phone_ingest_is_idempotent_by_source(
+def test_missing_phone_rejected_then_complete_identity_is_idempotent_by_source(
     db_session: Session,
 ) -> None:
     candidate_data = {"name": "缺手机号候选人", "phone": None}
@@ -139,6 +139,10 @@ def test_missing_phone_ingest_is_idempotent_by_source(
         "source_application_id": "application-without-phone-1",
         "raw_resume": "候选人暂未提供手机号",
     }
+
+    with pytest.raises(ValueError, match="手机号"):
+        ingest_candidate(db_session, candidate_data=candidate_data, source_data=source_data)
+    candidate_data.update(phone="13800130099", email="test99@example.test")
 
     first_candidate, first_source, first_created = ingest_candidate(
         db_session,
@@ -187,7 +191,7 @@ def test_human_decision_status_requires_human_action(
         transition_application(
             db_session,
             application.id,
-            ApplicationStatus.INTERVIEW_PENDING,
+            ApplicationStatus.ASSESSMENT_PENDING,
             actor="evaluation-agent",
         )
 
@@ -195,12 +199,12 @@ def test_human_decision_status_requires_human_action(
     transitioned = transition_application(
         db_session,
         application.id,
-        ApplicationStatus.INTERVIEW_PENDING,
+        ApplicationStatus.ASSESSMENT_PENDING,
         actor="hr",
         is_human_action=True,
         reason="人工审批进入面试",
     )
-    assert transitioned.status == ApplicationStatus.INTERVIEW_PENDING
+    assert transitioned.status == ApplicationStatus.ASSESSMENT_PENDING
     assert transitioned.decision_reason == "人工审批进入面试"
 
 

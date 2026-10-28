@@ -57,7 +57,7 @@ def _safe_error(error: Exception) -> str:
 
 
 class LLMClient:
-    """同步模型客户端；任何在线调用失败均自动降级到本地 Mock。"""
+    """同步模型客户端；仅显式 Mock 模式生成模拟结果。"""
 
     def __init__(
         self,
@@ -99,7 +99,7 @@ class LLMClient:
 
         config_error = self._configuration_error()
         if config_error:
-            return self._fallback_result(fallback, validate, config_error)
+            raise ValueError(config_error)
 
         try:
             content = validate(self._request_json(messages))
@@ -114,7 +114,8 @@ class LLMClient:
                 },
             }
         except Exception as error:
-            return self._fallback_result(fallback, validate, _safe_error(error))
+            # 不把 HTTP 错误中的 URL、响应正文或凭证带入日志。
+            raise ValueError(f"在线模型调用失败（{type(error).__name__}），请检查配置后重试") from error
 
     def _configuration_error(self) -> str | None:
         if self.provider not in ONLINE_PROVIDERS:
@@ -164,23 +165,6 @@ class LLMClient:
         if base.endswith("/chat/completions"):
             return base
         return f"{base}/chat/completions"
-
-    def _fallback_result(
-        self,
-        fallback: FallbackFactory,
-        validator: Validator,
-        reason: str,
-    ) -> dict[str, Any]:
-        return {
-            "content": validator(fallback()),
-            "meta": {
-                "requested_provider": self.provider,
-                "provider": "mock",
-                "model": "mock",
-                "fallback": True,
-                "fallback_reason": reason,
-            },
-        }
 
     @staticmethod
     def _identity_validator(value: JsonObject) -> JsonObject:

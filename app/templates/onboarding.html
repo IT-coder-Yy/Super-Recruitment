@@ -3,12 +3,25 @@
 {% block page_title %}入职跟进{% endblock %}
 {% block page_subtitle %}Offer 接受后自动生成入职事项，最终到岗由 HR 确认{% endblock %}
 {% block content %}
+{% for a in applications %}{% set registration = (a.extra_data or {}).get('onboarding',{}) %}
+<section class="work-surface"><header class="surface-header"><h2>{{ a.candidate.name }} · {{ a.job.title }} · {{ recruitment_types[a.job.recruitment_type] }} · {{ status_labels[a.status.value] }}</h2></header><div class="surface-body">
+<p>{{ a.candidate.phone }} · {{ a.candidate.email }} · 办理状态：{{ registration.get('state','待登记') }} · 实际到岗：{{ registration.get('actual_date','未确认') }}</p>
+{% if a.status.value == 'onboarding' %}<form method="post" action="/api/applications/{{ a.id }}/onboarding" class="form-grid">
+<input type="hidden" name="version" value="{{ registration.get('revision',0) }}">
+<label class="field">办理操作<select class="select" name="action"><option value="update">登记 / 补充完成</option><option value="needs_supplement">需补充材料</option><option value="defer">延期入职</option><option value="withdraw">放弃入职</option><option value="join">独立确认实际到岗</option></select></label>
+<label class="field">预计到岗日期<input class="input" type="date" name="expected_date" value="{{ registration.get('expected_date','') }}"></label>
+<label class="field">报到地点<input class="input" name="location" value="{{ registration.get('location','') }}"></label>
+<label class="field">实际到岗日期（到岗确认时填写）<input class="input" type="date" name="actual_date"></label>
+<label class="field">核实说明<textarea class="textarea" name="note">{{ registration.get('note','') }}</textarea></label>
+<button class="button button-primary" type="submit">保存办理记录</button>
+</form>{% else %}<p>{{ registration.get('note','') }}</p>{% endif %}
+</div></section>{% endfor %}
 <section class="workflow-page work-surface workflow-table">
-  <header class="surface-header"><div><h2 class="surface-title">入职事项 <span class="count-badge">{{ tasks|length }}</span></h2><p class="card-subtitle">按候选人检查资料与到岗准备，逐项确认完成。</p></div><a class="button button-sm" href="/offers">查看 Offer</a></header>
+  <header class="surface-header"><div><h2 class="surface-title">入职事项 <span class="count-badge">{{ tasks|length }}</span></h2><p class="card-subtitle">按候选人检查资料与到岗准备，逐项确认完成。</p></div><a class="button button-sm" href="/offers?recruitment_type={{ recruitment_type }}">查看 Offer</a></header>
   <div class="toolbar workflow-toolbar" aria-label="入职任务筛选"><div class="search-field"><svg class="icon search-icon" aria-hidden="true"><use href="/static/icons.svg#search"/></svg><input class="input" aria-label="搜索入职事项" placeholder="搜索候选人、岗位或事项" data-filter-table="#onboardingTable"></div><select class="select" aria-label="入职事项状态" data-table-select="#onboardingTable" data-column="3"><option value="">全部状态</option><option>待完成</option><option>已完成</option><option>已取消</option></select></div>
   <div class="table-wrap"><table class="data-table" id="onboardingTable"><thead><tr><th>入职事项</th><th>候选人 / 岗位</th><th>截止时间</th><th>状态</th><th class="action-cell">操作</th></tr></thead><tbody>
-    {% for task in tasks %}<tr><td><strong>{{ task.title }}</strong></td><td class="workflow-description"><a href="/offers?offer_id={{ task.offer.id }}">{{ task.offer.candidate_name }}</a><small>{{ task.offer.job_title }}</small></td><td class="nowrap">{{ task.due_at or '待确认' }}</td><td><span class="status {% if task.status.value == 'done' %}status-success{% elif task.status.value == 'open' %}status-warning{% else %}status-primary{% endif %}">{{ {'open':'待完成','done':'已完成','cancelled':'已取消'}.get(task.status.value, task.status.value) }}</span></td><td class="action-cell">{% if task.status.value == 'open' %}<form method="post" action="/api/onboarding/{{ task.id }}/complete"><button class="button button-primary button-sm" type="submit">确认完成</button></form>{% else %}<span class="muted">无需处理</span>{% endif %}</td></tr>
-    {% else %}<tr><td colspan="5"><div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#checklist"/></svg><h3>暂无入职事项</h3><p>候选人接受 Offer 后，资料准备与到岗确认事项会出现在这里。</p><a class="button" href="/offers">查看 Offer 进度</a></div></td></tr>{% endfor %}
+    {% for task in tasks %}<tr><td><strong>{{ task.title }}</strong></td><td class="workflow-description"><a href="/offers?offer_id={{ task.offer.id }}&recruitment_type={{ task.offer.application.job.recruitment_type }}">{{ task.offer.candidate_name }}</a><small>{{ task.offer.job_title }} · {{ recruitment_types[task.offer.application.job.recruitment_type] }}</small></td><td class="nowrap">{{ task.due_at or '待确认' }}</td><td><span class="status {% if task.status.value == 'done' %}status-success{% elif task.status.value == 'open' %}status-warning{% else %}status-primary{% endif %}">{{ {'open':'待完成','done':'已完成','cancelled':'已取消'}.get(task.status.value, task.status.value) }}</span></td><td class="action-cell">{% if task.status.value == 'open' %}<form method="post" action="/api/onboarding/{{ task.id }}/complete"><button class="button button-primary button-sm" type="submit">确认完成</button></form>{% else %}<span class="muted">无需处理</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="5"><div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#checklist"/></svg><h3>暂无入职事项</h3><p>候选人接受 Offer 后，资料准备与到岗确认事项会出现在这里。</p><a class="button" href="/offers?recruitment_type={{ recruitment_type }}">查看 Offer 进度</a></div></td></tr>{% endfor %}
   </tbody></table></div>
 </section>
 {% endblock %}

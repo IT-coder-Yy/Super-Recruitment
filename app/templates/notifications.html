@@ -10,14 +10,16 @@
     <div class="toolbar workflow-toolbar"><div class="search-field"><svg class="icon search-icon" aria-hidden="true"><use href="/static/icons.svg#search"/></svg><input class="input" aria-label="搜索通知" placeholder="搜索对象或主题" data-filter-table="#notificationTable"></div><select class="select" data-table-select="#notificationTable" data-column="3" aria-label="通知状态"><option value="">全部状态</option><option>已发送</option><option>发送失败</option><option>模拟发送</option></select></div>
     <div class="table-wrap"><table class="data-table" id="notificationTable"><thead><tr><th>渠道</th><th>对象</th><th>主题</th><th>状态</th><th>时间</th></tr></thead><tbody>
       {% for item in notifications %}
-      <tr><td>{{ item.channel }}</td><td>{{ item.recipient or '内部' }}</td><td>{{ item.subject or item.template }}</td><td><span class="status {% if item.status.value == 'failed' %}status-danger{% elif item.status.value == 'sent' %}status-success{% else %}status-warning{% endif %}">{{ {'failed':'发送失败','sent':'已发送','mocked':'模拟发送 · Mock'}.get(item.status.value, item.status.value) }}</span></td><td>{{ item.created_at }}</td></tr>
+      <tr><td>{{ item.channel }}</td><td>{{ item.recipient or '内部' }}</td><td>{{ item.subject or item.template }}<details><summary>邮件与结果</summary><pre>{{ item.content }}</pre><p>{{ item.error_message or '' }}</p>
+{% if item.status.value == 'unknown' %}<form method="post" action="/api/notifications/{{ item.id }}/verify"><label>核实结果<select class="select" name="delivered"><option value="true">已送达</option><option value="false">确认未送达，可重试</option></select></label><label>核实依据<input class="input" name="note" required></label><button class="button" type="submit">保存核实</button></form>{% endif %}
+{% if item.channel == 'wecom' and item.status.value == 'failed' and not (item.provider_response or {}).get('retry_id') %}<form method="post" action="/api/notifications/{{ item.id }}/retry"><button class="button" type="submit" data-confirm="请先核对内部群消息；超时后的重试可能重复提醒。确认重试？">重试内部通知</button></form>{% endif %}</details></td><td><span class="status {% if item.status.value == 'failed' %}status-danger{% elif item.status.value == 'sent' %}status-success{% else %}status-warning{% endif %}">{{ {'failed':'发送失败','sent':'已发送','mocked':'模拟发送 · Mock','unknown':'送达待核实','sending':'发送中'}.get(item.status.value, item.status.value) }}</span></td><td>{{ item.created_at }}</td></tr>
       {% else %}<tr><td colspan="5"><div class="empty-state"><h3>暂无通知记录</h3><p>预约邀请、Offer 与内部提醒的发送结果会显示在这里。</p></div></td></tr>{% endfor %}
     </tbody></table></div>
   </article>
   <article class="work-surface">
     <header class="surface-header"><div><h2 class="surface-title">数据导出与同步</h2><p class="card-subtitle">下载招聘数据，或查看腾讯文档 Mock 同步结果。</p></div></header>
     <div class="surface-body stack-sm">
-      <div class="button-row"><a class="button" href="/api/exports/recruitment.xlsx">下载 XLSX</a><a class="button" href="/api/exports/recruitment.csv">下载 CSV</a></div>
+      <div class="button-row"><a class="button" href="/api/exports/recruitment.xlsx?recruitment_type={{ recruitment_type }}">下载 XLSX</a><a class="button" href="/api/exports/recruitment.csv?recruitment_type={{ recruitment_type }}">下载 CSV</a></div>
       <div class="table-wrap"><table class="data-table"><thead><tr><th>类型</th><th>状态</th><th>行数</th><th>说明</th><th>时间</th></tr></thead><tbody>
         {% for run in exports %}
         <tr><td>{{ run.export_type }}</td><td><span class="status {% if run.status.value == 'success' %}status-success{% elif run.status.value == 'failed' %}status-danger{% else %}status-warning{% endif %}">{{ run.status.value }}</span></td><td>{{ run.row_count }}</td><td>{{ run.message or '—' }}</td><td>{{ run.created_at }}</td></tr>

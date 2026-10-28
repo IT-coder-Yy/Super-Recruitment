@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from zoneinfo import ZoneInfo
 import secrets
 import time
 from typing import Any
@@ -11,7 +12,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -26,6 +27,7 @@ from app.config import (
     reload_env,
     save_app_setting,
     save_llm_settings,
+    public_url,
 )
 
 ensure_runtime_dirs()
@@ -60,8 +62,8 @@ from app.models import (
 from app.schemas import EvaluationCreate, EvaluationDimension, InterviewCreate, InterviewSlotCreate
 from app.seed import seed_database
 from app.workbench import appointment_time, build_workbench_context
-from app.services.auth import hash_password, normalize_username, verify_password
-from app.services.candidates import normalize_name, normalize_phone
+from app.services.auth import current_actor, hash_password, normalize_username, verify_password
+from app.services.candidates import normalize_name, normalize_phone, revise_candidate
 from app.services.exporter import export_recruitment_csv, export_recruitment_xlsx
 from app.services.imports import (
     confirm_import_task,
@@ -71,16 +73,19 @@ from app.services.imports import (
     reject_import_task,
     serialize_import_task,
     store_upload_bytes,
+    supplement_import_task,
+    build_rule_parse,
 )
 from app.services.offers import (
     approve_offer,
+    save_offer_terms,
+    return_offer,
+    missing_offer_terms,
     create_offer,
-    list_offers,
-    list_onboarding_tasks,
     notify_internal,
     record_export_run,
     respond_offer,
-    scan_offer_onboarding_reminders,
+    record_offer_delivery,
     send_offer,
     send_email_notification,
     submit_interview_feedback,
@@ -88,6 +93,7 @@ from app.services.offers import (
 )
 from app.services.scheduling import (
     BookingTokenError,
+    DEFAULT_BUFFER_MINUTES,
     create_booking_token,
     generate_candidate_slots,
     intervals_conflict,
@@ -102,10 +108,34 @@ from app.services.workflow import (
     resolve_follow_up,
     transition_application,
     write_audit_log,
+    lock_record,
 )
 
 
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.background import BackgroundScheduler
+from app.services.periodic import recover_inflight, run_followups
+
+
+@asynccontextmanager
+async def lifespan(application):
+    startup()
+    scheduler = None
+    if get_setting("FOLLOWUP_ENABLED", "true").lower() not in {"false", "0", "no"}:
+        scheduler = BackgroundScheduler(timezone="UTC")
+        scheduler.add_job(run_followups, "interval", seconds=max(1, int(get_setting("FOLLOWUP_INTERVAL_SECONDS", "900"))),
+                          args=[SessionLocal], max_instances=1, coalesce=True, next_run_time=datetime.now(timezone.utc))
+        scheduler.start()
+    application.state.followup_scheduler = scheduler
+    try:
+        yield
+    finally:
+        if scheduler:
+            scheduler.shutdown(wait=True)
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="AI 招聘自动化 Demo",
     description="低成本、本地运行、人工审批优先的 AI 招聘工作流。",
     version="1.0.0",
@@ -122,6 +152,7 @@ LOGIN_WINDOW_SECONDS = 10 * 60
 LOGIN_MAX_FAILURES = 5
 
 STATUS_LABELS = {
+    "assessment_pending": "待测评", "written_pending": "待笔试", "onboarding_withdrawn": "放弃入职",
     "captured": "已采集",
     "parsing": "解析中",
     "needs_review": "待人工确认",
@@ -145,11 +176,38 @@ STATUS_LABELS = {
     "joined": "已入职",
 }
 
+RECRUITMENT_TYPES = {"all": "全部", "autumn": "秋招", "internship": "实习"}
 
-@app.on_event("startup")
+
+def _recruitment_type(request: Request) -> str:
+    value = request.query_params.get("recruitment_type", request.session.get("recruitment_type", "all"))
+    if value not in RECRUITMENT_TYPES:
+        raise HTTPException(422, "招聘类型必须为全部、秋招或实习")
+    if "recruitment_type" in request.query_params and not request.url.path.startswith("/api/"):
+        request.session["recruitment_type"] = value
+    return value
+
+
+def _application_ids(recruitment_type: str):
+    statement = select(Application.id)
+    if recruitment_type != "all":
+        statement = statement.join(Job).where(Job.recruitment_type == recruitment_type)
+    return statement
+
+
+def _followup_scope(application_ids):
+    return or_(
+        (FollowUpTask.target_type == "application") & FollowUpTask.target_id.in_(application_ids),
+        (FollowUpTask.target_type == "offer") & FollowUpTask.target_id.in_(select(Offer.id).where(Offer.application_id.in_(application_ids))),
+        (FollowUpTask.target_type == "onboarding") & FollowUpTask.target_id.in_(select(OnboardingTask.id).where(OnboardingTask.application_id.in_(application_ids))),
+        (FollowUpTask.target_type == "interview") & FollowUpTask.target_id.in_(select(Interview.id).where(Interview.application_id.in_(application_ids))),
+    )
+
+
 def startup() -> None:
     init_db()
     with session_scope() as session:
+        recover_inflight(session)
         if (session.scalar(select(func.count(Candidate.id))) or 0) == 0:
             seed_database(session)
 
@@ -185,7 +243,11 @@ async def require_authentication(request: Request, call_next):
         "id": user.id,
         "username": user.username,
     }
-    return await call_next(request)
+    actor_token = current_actor.set(f"{user.id}:{user.username}")
+    try:
+        return await call_next(request)
+    finally:
+        current_actor.reset(actor_token)
 
 
 app.add_middleware(
@@ -211,9 +273,6 @@ async def _csrf_request_valid(request: Request) -> bool:
     expected = request.session.get("csrf_token")
     provided = request.headers.get("x-csrf-token") or request.query_params.get("csrf_token")
     if not isinstance(expected, str) or not expected:
-        if provided:
-            request.session["csrf_token"] = provided
-            return True
         return False
     return bool(provided) and secrets.compare_digest(expected, provided)
 
@@ -221,13 +280,6 @@ async def _csrf_request_valid(request: Request) -> bool:
 def _csrf_form_valid(request: Request, csrf_token: str) -> bool:
     expected = request.session.get("csrf_token")
     if not isinstance(expected, str) or not expected:
-        # Session cookie was lost (e.g. Chrome cookie policy) — the token
-        # from the rendered form is still trustworthy because it was embedded
-        # in a page served by this same origin.  Accept the submitted token
-        # and adopt it into the fresh session so subsequent requests work.
-        if csrf_token:
-            request.session["csrf_token"] = csrf_token
-            return True
         return False
     return bool(csrf_token) and secrets.compare_digest(expected, csrf_token)
 
@@ -251,6 +303,7 @@ def _latest(items: list[Any]) -> Any | None:
 
 def _application_row(application: Application) -> dict[str, Any]:
     evaluation = _latest(application.evaluations)
+    attempt = max(application.evaluation_attempts, key=lambda a: a.id) if application.evaluation_attempts else None
     interview = max(application.interviews, key=lambda item: item.round) if application.interviews else None
     return {
         "id": application.id,
@@ -259,12 +312,18 @@ def _application_row(application: Application) -> dict[str, Any]:
         "phone": application.candidate.phone or "未提供",
         "email": application.candidate.email or "未提供",
         "job_title": application.job.title,
+        "recruitment_type": application.job.recruitment_type,
+        "recruitment_type_label": RECRUITMENT_TYPES[application.job.recruitment_type],
         "status": application.status.value,
         "status_label": STATUS_LABELS.get(application.status.value, application.status.value),
         "owner": application.owner or "未分配",
         "channel": application.channel or "未知",
         "score": evaluation.total_score if evaluation else None,
         "evaluation_id": evaluation.id if evaluation else None,
+        "evaluation_stale": evaluation.is_stale if evaluation else False,
+        "evaluation_attempt": {"id": attempt.id, "status": attempt.status, "error": attempt.error} if attempt else None,
+        "workflow_revision": (application.extra_data or {}).get("workflow_revision", 0),
+        "exam_decisions": (application.extra_data or {}).get("exams", {}),
         "evaluation_reason": evaluation.reason if evaluation else None,
         "dimensions": evaluation.scores if evaluation else [],
         "missing_information": evaluation.missing_information if evaluation else [],
@@ -272,12 +331,13 @@ def _application_row(application: Application) -> dict[str, Any]:
         "interview_time": interview.confirmed_start_at if interview else None,
         "meeting_url": interview.meeting_url if interview else None,
         "updated_at": application.updated_at,
+        "created_at": application.created_at,
     }
 
 
-def _application_rows(session: Session) -> list[dict[str, Any]]:
+def _application_rows(session: Session, recruitment_type: str = "all") -> list[dict[str, Any]]:
     applications = session.scalars(
-        select(Application).order_by(desc(Application.updated_at))
+        select(Application).where(Application.id.in_(_application_ids(recruitment_type))).order_by(desc(Application.updated_at))
     ).unique().all()
     return [_application_row(item) for item in applications]
 
@@ -400,68 +460,34 @@ def _profile_experiences(value: Any) -> list[dict[str, str]]:
     return result
 
 
-def _dashboard_data(session: Session) -> dict[str, Any]:
-    rows = _application_rows(session)
+def _dashboard_data(session: Session, recruitment_type: str = "all") -> dict[str, Any]:
+    rows = _application_rows(session, recruitment_type)
+    application_ids = [row["id"] for row in rows]
     statuses = Counter(row["status"] for row in rows)
     channels = Counter(row["channel"] for row in rows)
     jobs = Counter(row["job_title"] for row in rows)
-    total_candidates = session.scalar(select(func.count(Candidate.id))) or 0
-    screened_states = {
-        "deduplicated",
-        "evaluating",
-        "evaluation_review",
-        "interview_pending",
-        "scheduling",
-        "interview_confirmed",
-        "interviewed",
-        "feedback_pending",
-        "next_round",
-        "offer_pending",
-        "offer_sent",
-        "offer_accepted",
-        "offer_declined",
-        "onboarding",
-        "joined",
-    }
-    interview_states = {
-        "interview_pending",
-        "scheduling",
-        "interview_confirmed",
-        "interviewed",
-        "feedback_pending",
-        "next_round",
-        "offer_pending",
-        "offer_sent",
-        "offer_accepted",
-        "offer_declined",
-        "onboarding",
-        "joined",
-    }
-    offer_states = {
-        "offer_pending",
-        "offer_sent",
-        "offer_accepted",
-        "offer_declined",
-        "onboarding",
-        "joined",
-    }
+    total_candidates = len({row["candidate_id"] for row in rows}) if recruitment_type != "all" else session.scalar(select(func.count(Candidate.id))) or 0
+    reached = {row["id"]: {row["status"]} for row in rows}
+    for log in session.scalars(select(AuditLog).where(AuditLog.entity_type == "application", AuditLog.action == "application.status_changed")):
+        if log.entity_id in reached:
+            for snapshot in (log.before_data, log.after_data):
+                if snapshot and snapshot.get("status"):
+                    reached[log.entity_id].add(snapshot["status"])
     overdue = session.scalar(
         select(func.count(FollowUpTask.id)).where(
-            FollowUpTask.status == FollowUpStatus.OPEN
+            FollowUpTask.status == FollowUpStatus.OPEN,
+            FollowUpTask.due_at <= datetime.now(timezone.utc),
+            _followup_scope(application_ids) if recruitment_type != "all" else True,
         )
     ) or 0
-    total_offers = session.scalar(select(func.count(Offer.id))) or 0
-    accepted_offers = session.scalar(
-        select(func.count(Offer.id)).where(Offer.status == OfferStatus.ACCEPTED)
-    ) or 0
-    sent_offers = session.scalar(
-        select(func.count(Offer.id)).where(
-            Offer.status.in_([OfferStatus.SENT, OfferStatus.ACCEPTED, OfferStatus.DECLINED])
-        )
-    ) or 0
+    offers = session.scalars(select(Offer).where(Offer.application_id.in_(application_ids))).all()
+    total_offers = len(offers)
+    accepted_offers = sum(offer.status == OfferStatus.ACCEPTED for offer in offers)
+    sent_offers = sum(offer.status in {OfferStatus.SENT, OfferStatus.ACCEPTED, OfferStatus.DECLINED} for offer in offers)
     onboarding_open = session.scalar(
         select(func.count(OnboardingTask.id)).where(
-            OnboardingTask.status == OnboardingStatus.OPEN
+            OnboardingTask.status == OnboardingStatus.OPEN,
+            OnboardingTask.application_id.in_(application_ids),
         )
     ) or 0
     notification_failed = session.scalar(
@@ -469,15 +495,29 @@ def _dashboard_data(session: Session) -> dict[str, Any]:
     ) or 0
     funnel = {
         "applications": len(rows),
-        "screened": sum(row["status"] in screened_states for row in rows),
-        "interviews": sum(row["status"] in interview_states for row in rows),
-        "offers": sum(row["status"] in offer_states for row in rows),
+        "screened": sum(bool(states & {"deduplicated", "evaluating", "evaluation_review"}) for states in reached.values()),
+        "assessments": sum("assessment_pending" in states for states in reached.values()),
+        "written": sum("written_pending" in states for states in reached.values()),
+        "interviews": sum(bool(states & {"interview_pending", "scheduling", "interview_confirmed", "interviewed", "feedback_pending", "next_round"}) for states in reached.values()),
+        "offers": sum(bool(states & {"offer_pending", "offer_sent", "offer_accepted", "offer_declined"}) for states in reached.values()),
         "onboarded": statuses.get("joined", 0),
     }
-    return {
+    exam_counts = {}
+    later_stages = {"interview_pending", "scheduling", "interview_confirmed", "interviewed", "feedback_pending", "next_round", "offer_pending", "offer_sent", "offer_accepted", "offer_declined", "onboarding", "joined", "onboarding_withdrawn"}
+    for kind in ("assessment", "written"):
+        sent = {d.application_id for d in session.scalars(select(ExamDispatch).where(ExamDispatch.kind == kind, ExamDispatch.application_id.in_(application_ids)))
+                if (n := exams.dispatch_notification(session, d.id)) and n.status in exams.DELIVERED}
+        exam_counts[kind] = {
+            "sent": len(sent),
+            **{result: sum(row["exam_decisions"].get(kind, {}).get("result") == result for row in rows) for result in ("passed", "failed", "skipped")},
+            "historical_unrecorded": sum(not row["exam_decisions"].get(kind) and row["status"] in later_stages for row in rows),
+        }
+    result = {
+        "recruitment_type": recruitment_type,
+        "exam_counts": exam_counts,
         "total_candidates": total_candidates,
         "new_today": sum(
-            bool(row["updated_at"] and row["updated_at"].date() == datetime.now(timezone.utc).date())
+            bool(row["created_at"] and row["created_at"].replace(tzinfo=timezone.utc).astimezone(ZoneInfo("Asia/Shanghai")).date() == datetime.now(ZoneInfo("Asia/Shanghai")).date())
             for row in rows
         ),
         "pending_review": statuses.get("evaluation_review", 0) + statuses.get("needs_review", 0),
@@ -497,6 +537,11 @@ def _dashboard_data(session: Session) -> dict[str, Any]:
         "jobs": [{"name": name, "count": count} for name, count in jobs.most_common()],
         **funnel,
     }
+    if recruitment_type == "all":
+        result["by_recruitment_type"] = {
+            kind: _dashboard_data(session, kind) for kind in ("autumn", "internship")
+        }
+    return result
 
 
 def _offer_detail(session: Session, offer: Offer | None) -> dict[str, Any] | None:
@@ -517,10 +562,10 @@ def _offer_detail(session: Session, offer: Offer | None) -> dict[str, Any] | Non
         .order_by(desc(AuditLog.created_at))
         .limit(20)
     ).all()
-    pending_terms = ["薪资/补贴", "职级", "预计入职日期"]
+    pending_terms = missing_offer_terms(offer)
     approval_summary = (
         f"{offer.candidate_name} 已完成面试反馈流程，拟录用岗位为 {offer.job_title}。"
-        "本 Demo 中薪资、职级和预计入职日期保持“待 HR 填写”，需审批人确认后才能发放。"
+        f"当前条款版本：{(offer.terms or {}).get('revision', 0)}，修改后需重新审批。"
     )
     return {
         "pending_terms": pending_terms,
@@ -568,8 +613,11 @@ def _candidate_manual_snapshot(data: dict[str, Any] | None) -> dict[str, Any]:
 def _base_context(
     request: Request, session: Session, active_page: str
 ) -> dict[str, Any]:
-    summary = _dashboard_data(session)
+    recruitment_type = _recruitment_type(request)
+    summary = _dashboard_data(session, recruitment_type)
     return {
+        "recruitment_type": recruitment_type,
+        "recruitment_types": RECRUITMENT_TYPES,
         "active_page": active_page,
         "pending_evaluations": summary["pending_review"],
         "overdue_count": summary["overdue"],
@@ -782,8 +830,9 @@ def health() -> dict[str, str]:
 
 @app.get("/")
 def workbench(request: Request, session: Session = Depends(get_db)):
-    summary = _dashboard_data(session)
-    rows = _application_rows(session)
+    recruitment_type = _recruitment_type(request)
+    summary = _dashboard_data(session, recruitment_type)
+    rows = _application_rows(session, recruitment_type)
     tasks = session.scalars(
         select(FollowUpTask)
         .where(FollowUpTask.status == FollowUpStatus.OPEN)
@@ -802,7 +851,7 @@ def workbench(request: Request, session: Session = Depends(get_db)):
         rows=rows[:8],
         tasks=tasks,
         audits=audits,
-        **build_workbench_context(session, rows, summary),
+        **build_workbench_context(session, rows, summary, recruitment_type=recruitment_type),
     )
 
 
@@ -813,7 +862,7 @@ def dashboard(request: Request, session: Session = Depends(get_db)):
         session,
         "dashboard.html",
         "dashboard",
-        summary=_dashboard_data(session),
+        summary=_dashboard_data(session, _recruitment_type(request)),
     )
 
 
@@ -824,7 +873,7 @@ def candidates_page(request: Request, session: Session = Depends(get_db)):
         session,
         "candidates.html",
         "candidates",
-        rows=_application_rows(session),
+        rows=_application_rows(session, _recruitment_type(request)),
     )
 
 
@@ -837,11 +886,14 @@ def candidate_detail(
         raise HTTPException(404, "候选人不存在")
     rows = [_application_row(item) for item in candidate.applications]
     profile = _candidate_profile(candidate)
+    selected = next((a for a in candidate.applications if str(a.id) == request.query_params.get("application_id")), None) or next(iter(candidate.applications), None)
+    if selected:
+        profile["chat_summary"] = (selected.extra_data or {}).get("manual_chat", "\n".join(str(m.get("content", "")) for link in selected.source_links for m in (link.source.raw_chat or [])))
     audits = session.scalars(
         select(AuditLog)
         .where(
             (AuditLog.entity_type == "candidate") & (AuditLog.entity_id == candidate_id)
-            | (AuditLog.entity_type == "application")
+            | ((AuditLog.entity_type == "application") & AuditLog.entity_id.in_([a.id for a in candidate.applications]))
         )
         .order_by(desc(AuditLog.created_at))
         .limit(20)
@@ -855,102 +907,52 @@ def candidate_detail(
         profile=profile,
         rows=rows,
         audits=audits,
+        evaluation_history=sorted([e for a in candidate.applications for e in a.evaluations], key=lambda e: e.id, reverse=True),
     )
 
 
 @app.post("/api/candidates/{candidate_id}/supplement")
 def supplement_candidate_api(
     candidate_id: int,
-    name: str = Form(""),
-    phone: str = Form(""),
-    email: str = Form(""),
-    skills: str = Form(""),
-    experience: str = Form(""),
-    chat_summary: str = Form(""),
-    note: str = Form(""),
+    name: str | None = Form(None),
+    phone: str | None = Form(None),
+    email: str | None = Form(None),
+    skills: str | None = Form(None),
+    experience: str | None = Form(None),
+    chat_summary: str | None = Form(None),
+    note: str | None = Form(None),
+    version: int | None = Form(None),
+    application_id: int | None = Form(None),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
     candidate = session.get(Candidate, candidate_id)
     if candidate is None:
         raise HTTPException(404, "候选人不存在")
-
-    before = {
-        "name": candidate.name,
-        "phone": _mask_phone(candidate.phone),
-        "email": _mask_email(candidate.email),
-        "structured_data": _candidate_manual_snapshot(candidate.structured_data),
-    }
-    cleaned_name = name.strip()
-    cleaned_phone = phone.strip()
-    cleaned_email = email.strip()
-    if cleaned_name:
-        candidate.name = cleaned_name
-        candidate.normalized_name = normalize_name(cleaned_name)
-    if cleaned_phone:
-        candidate.phone = cleaned_phone
-        candidate.normalized_phone = normalize_phone(cleaned_phone)
-    if cleaned_email:
-        candidate.email = cleaned_email
-
-    structured = dict(candidate.structured_data or {})
-    human_summary = dict(structured.get("human_summary") or {})
-    if skills.strip():
-        human_summary["skills"] = _split_lines(skills)
-    if experience.strip():
-        human_summary["projects"] = [
-            {"title": f"人工补充经历 {index}", "description": item}
-            for index, item in enumerate(_split_lines(experience), start=1)
-        ]
-    if chat_summary.strip():
-        human_summary["chat_summary"] = chat_summary.strip()
-    if note.strip():
-        human_summary["note"] = note.strip()
-    structured["human_summary"] = human_summary
-    structured["manual_supplement"] = {
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "fields": [
-            field
-            for field, value in {
-                "name": cleaned_name,
-                "phone": cleaned_phone,
-                "email": cleaned_email,
-                "skills": skills.strip(),
-                "experience": experience.strip(),
-                "chat_summary": chat_summary.strip(),
-                "note": note.strip(),
-            }.items()
-            if value
-        ],
-    }
-    candidate.structured_data = structured
-    write_audit_log(
-        session,
-        actor="本地管理员",
-        action="candidate.supplemented",
-        entity_type="candidate",
-        entity_id=candidate.id,
-        before_data=before,
-        after_data={
-            "name": candidate.name,
-            "phone": _mask_phone(candidate.phone),
-            "email": _mask_email(candidate.email),
-            "structured_data": _candidate_manual_snapshot(candidate.structured_data),
-        },
-    )
-    session.commit()
-    return {"ok": True, "message": "候选人补充资料已保存"}
+    changes = {key: value for key, value in {
+        "name": name, "phone": phone, "email": email, "skills": skills,
+        "experience": experience, "chat_summary": chat_summary, "note": note,
+    }.items() if value is not None}
+    try:
+        revise_candidate(session, candidate, changes, version=version, application_id=application_id)
+        session.commit()
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "message": "资料已保存；受影响的旧评估已标记过期", "revision": candidate.structured_data["revision"]}
 
 
 @app.post("/api/candidates/{candidate_id}/profile")
 def update_candidate_profile_api(
     candidate_id: int,
-    name: str = Form(""),
-    phone: str = Form(""),
-    email: str = Form(""),
-    skills: str = Form(""),
-    experience: str = Form(""),
-    chat_summary: str = Form(""),
-    note: str = Form(""),
+    name: str | None = Form(None),
+    phone: str | None = Form(None),
+    email: str | None = Form(None),
+    skills: str | None = Form(None),
+    experience: str | None = Form(None),
+    chat_summary: str | None = Form(None),
+    note: str | None = Form(None),
+    version: int | None = Form(None),
+    application_id: int | None = Form(None),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
     return supplement_candidate_api(
@@ -962,6 +964,8 @@ def update_candidate_profile_api(
         experience=experience,
         chat_summary=chat_summary,
         note=note,
+        version=version,
+        application_id=application_id,
         session=session,
     )
 
@@ -1020,6 +1024,7 @@ def import_page(request: Request, session: Session = Depends(get_db)):
         "import.html",
         "import",
         import_tasks=import_task_rows(session),
+        jobs=session.scalars(select(Job).order_by(Job.id)).all(),
     )
 
 
@@ -1032,7 +1037,7 @@ def mock_platform_page(request: Request, session: Session = Depends(get_db)):
 def evaluations_page(request: Request, session: Session = Depends(get_db)):
     rows = [
         row
-        for row in _application_rows(session)
+        for row in _application_rows(session, _recruitment_type(request))
         if row["evaluation_id"] or row["status"] in {"captured", "parsed", "deduplicated", "evaluation_review"}
     ]
     return _render(request, session, "evaluations.html", "evaluations", rows=rows)
@@ -1041,7 +1046,7 @@ def evaluations_page(request: Request, session: Session = Depends(get_db)):
 @app.get("/interviews")
 def interviews_page(request: Request, session: Session = Depends(get_db)):
     interviews = session.scalars(
-        select(Interview).order_by(desc(Interview.created_at))
+        select(Interview).where(Interview.application_id.in_(_application_ids(_recruitment_type(request)))).order_by(desc(Interview.created_at))
     ).unique().all()
     base_url = str(request.base_url).rstrip("/")
     booking_urls = {
@@ -1065,7 +1070,8 @@ def offers_page(
     offer_id: int | None = None,
     session: Session = Depends(get_db),
 ):
-    offers = list_offers(session)
+    offers = session.scalars(select(Offer).where(Offer.application_id.in_(
+        _application_ids(_recruitment_type(request)))).order_by(desc(Offer.created_at)).limit(200)).all()
     selected_offer = (
         next((item for item in offers if item.id == offer_id), None)
         if offer_id
@@ -1084,14 +1090,14 @@ def offers_page(
 
 @app.get("/onboarding")
 def onboarding_page(request: Request, session: Session = Depends(get_db)):
-    scan_offer_onboarding_reminders(session)
-    session.commit()
+    application_ids = _application_ids(_recruitment_type(request))
     return _render(
         request,
         session,
         "onboarding.html",
         "onboarding",
-        tasks=list_onboarding_tasks(session),
+        tasks=session.scalars(select(OnboardingTask).where(OnboardingTask.application_id.in_(application_ids)).order_by(OnboardingTask.due_at).limit(200)).all(),
+        applications=session.scalars(select(Application).where(Application.id.in_(application_ids), Application.status.in_([ApplicationStatus.ONBOARDING, ApplicationStatus.JOINED, ApplicationStatus.ONBOARDING_WITHDRAWN]))).all(),
     )
 
 
@@ -1115,8 +1121,9 @@ def notifications_page(request: Request, session: Session = Depends(get_db)):
 
 @app.get("/follow-ups")
 def followups_page(request: Request, session: Session = Depends(get_db)):
+    recruitment_type = _recruitment_type(request)
     tasks = session.scalars(
-        select(FollowUpTask).order_by(FollowUpTask.status, FollowUpTask.due_at)
+        select(FollowUpTask).where(_followup_scope(_application_ids(recruitment_type)) if recruitment_type != "all" else True).order_by(FollowUpTask.status, FollowUpTask.due_at)
     ).all()
     return _render(
         request, session, "follow_ups.html", "follow_ups", tasks=tasks
@@ -1282,39 +1289,44 @@ def import_mock(session: Session = Depends(get_db)) -> dict[str, Any]:
 async def upload_import_files(
     request: Request,
     files: list[UploadFile] = File(...),
+    job_id: int | None = Form(None),
+    recruitment_type: str | None = Form(None),
     job_title: str = Form(""),
     jd_text: str = Form(""),
     channel: str = Form("本地上传"),
     owner: str = Form("HR"),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    try:
-        stored_files = [
-            store_upload_bytes(
+    if job_id is None and recruitment_type not in {"autumn", "internship"}:
+        raise HTTPException(422, "新建岗位必须选择秋招或实习")
+    new_job_source_id = f"local-batch-{secrets.token_hex(16)}" if job_id is None else None
+    tasks, errors = [], []
+    for file in files:
+        stored = None
+        try:
+            stored = store_upload_bytes(
                 original_filename=file.filename or "resume.txt",
-                content=await file.read(),
+                content=await file.read(int(get_setting("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024))) + 1),
                 content_type=file.content_type,
             )
-            for file in files
-        ]
-        task = create_file_import_task(
-            session,
-            uploads=stored_files,
-            operator_id=request.session.get("user_id"),
-            job_title=job_title,
-            jd_text=jd_text,
-            channel=channel,
-            owner=owner,
-        )
-        session.commit()
-        return {
-            "ok": True,
-            "message": "文件已上传，已创建导入任务；请点击开始解析。",
-            "task": serialize_import_task(task),
-        }
-    except ValueError as exc:
-        session.rollback()
-        raise HTTPException(422, str(exc)) from exc
+            task = create_file_import_task(
+                session, uploads=[stored], operator_id=request.session.get("user_id"),
+                job_title=job_title, jd_text=jd_text, channel=channel, owner=owner, job_id=job_id,
+                recruitment_type=recruitment_type or "autumn",
+                new_job_source_id=new_job_source_id,
+            )
+            session.commit()
+            tasks.append(serialize_import_task(task))
+        except (ValueError, OSError) as exc:
+            session.rollback()
+            if stored:
+                stored.file_path.unlink(missing_ok=True)
+            errors.append({"filename": file.filename, "error": str(exc)})
+        finally:
+            await file.close()
+    if not tasks:
+        return JSONResponse({"ok": False, "tasks": [], "errors": errors, "detail": "没有文件成功上传"}, status_code=422)
+    return {"ok": not errors, "message": f"已创建 {len(tasks)} 个独立任务，失败 {len(errors)} 个", "tasks": tasks, "errors": errors, "task": tasks[0]}
 
 
 @app.get("/api/import/tasks")
@@ -1349,10 +1361,24 @@ def parse_import_task_api(
         raise HTTPException(422, str(exc)) from exc
 
 
+@app.post("/api/import/tasks/{task_id}/supplement")
+async def supplement_import_api(task_id: int, request: Request, session: Session = Depends(get_db)):
+    form = dict(await request.form())
+    try:
+        version = int(form.pop("version"))
+        task = supplement_import_task(session, task_id, form, version=version)
+        session.commit()
+        return {"ok": True, "task": serialize_import_task(task), "message": "预览已保存，请核对并确认入库"}
+    except (KeyError, ValueError) as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
 @app.post("/api/import/tasks/{task_id}/confirm")
 def confirm_import_task_api(
     task_id: int,
     start_evaluation: bool = Form(False),
+    version: int | None = Form(None),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
@@ -1360,20 +1386,23 @@ def confirm_import_task_api(
             session,
             task_id,
             start_evaluation=start_evaluation,
-        )
-        evaluation_result = (
-            _evaluate_application_record(session, application)
-            if start_evaluation
-            else None
+            version=version,
         )
         session.commit()
+        evaluation_result, evaluation_error = None, None
+        if start_evaluation:
+            try:
+                evaluation_result = _evaluate_application_record(session, application)
+            except ValueError as exc:
+                evaluation_error = str(exc)
         return {
             "ok": True,
             "message": "已确认入库，候选人和投递记录已创建。"
-            + ("AI 评估已完成，等待人工审核。" if evaluation_result else ""),
+            + ("AI 评估已完成，等待人工审核。" if evaluation_result else evaluation_error or ""),
             "candidate_id": application.candidate_id,
             "application_id": application.id,
             "evaluation": evaluation_result,
+            "evaluation_error": evaluation_error,
             "candidate_url": f"/candidates/{application.candidate_id}",
         }
     except ValueError as exc:
@@ -1404,8 +1433,8 @@ def capture_mock_connector(session: Session = Depends(get_db)) -> dict[str, Any]
 
 
 @app.get("/api/candidates")
-def candidates_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    return _application_rows(session)
+def candidates_api(request: Request, session: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    return _application_rows(session, _recruitment_type(request))
 
 
 @app.get("/api/candidates/{candidate_id}")
@@ -1424,91 +1453,7 @@ def candidate_api(candidate_id: int, session: Session = Depends(get_db)) -> dict
     }
 
 
-def _advance_for_evaluation(session: Session, application: Application) -> None:
-    sequence = [
-        ApplicationStatus.PARSING,
-        ApplicationStatus.PARSED,
-        ApplicationStatus.DEDUPLICATED,
-        ApplicationStatus.EVALUATING,
-    ]
-    if application.status == ApplicationStatus.NEEDS_REVIEW:
-        transition_application(
-            session,
-            application.id,
-            ApplicationStatus.PARSED,
-            actor="本地管理员",
-            is_human_action=True,
-            reason="Demo 人工确认后继续",
-        )
-    for target in sequence:
-        if application.status == target:
-            continue
-        try:
-            transition_application(
-                session,
-                application.id,
-                target,
-                actor="AI工作流",
-                is_human_action=False,
-            )
-        except InvalidStatusTransition:
-            continue
-
-
-def _evaluate_application_record(
-    session: Session,
-    application: Application,
-) -> dict[str, Any]:
-    source = application.source
-    raw_chat = "\n".join(
-        str(item.get("content", "")) for item in (source.raw_chat or [])
-    ) if source else ""
-    result = AIService().analyze_candidate(
-        source.raw_resume if source and source.raw_resume else "",
-        raw_chat,
-        application.job_version.jd_raw,
-    )
-    application.candidate.structured_data = result["structured"]
-    _advance_for_evaluation(session, application)
-    evaluation_data = result["evaluation"]
-    dimensions = [
-        EvaluationDimension(
-            name=item["name"],
-            score=item["score"],
-            weight=item["weight"],
-            jd_requirement=item.get("jd_requirement"),
-            resume_evidence=item.get("resume_evidence"),
-            confidence=item.get("confidence"),
-        )
-        for item in evaluation_data["dimensions"]
-    ]
-    evaluation = create_evaluation(
-        session,
-        application.id,
-        EvaluationCreate(
-            model=evaluation_data.get("model") or "mock",
-            prompt_version=evaluation_data.get("prompt_version"),
-            evaluation_version=evaluation_data.get("evaluation_version", "1.0"),
-            dimensions=dimensions,
-            reason=evaluation_data["recommendation_reason"],
-            missing_information=evaluation_data.get("missing_information", []),
-        ),
-        actor="评估Agent",
-    )
-    if application.status == ApplicationStatus.EVALUATING:
-        transition_application(
-            session,
-            application.id,
-            ApplicationStatus.EVALUATION_REVIEW,
-            actor="评估Agent",
-        )
-    return {
-        "evaluation_id": evaluation.id,
-        "total_score": evaluation.total_score,
-        "reason": evaluation.reason,
-        "provider": evaluation_data.get("provider"),
-        "fallback": evaluation_data.get("fallback"),
-    }
+from app.services.evaluations import evaluate_application_record as _evaluate_application_record
 
 
 @app.post("/api/applications/{application_id}/parse")
@@ -1522,14 +1467,11 @@ def parse_application(
     raw_chat = "\n".join(
         str(item.get("content", "")) for item in (source.raw_chat or [])
     ) if source else ""
-    structured = AIService().structure_candidate(
-        source.raw_resume if source and source.raw_resume else "",
-        raw_chat,
-        application.job_version.jd_raw,
-    )
-    application.candidate.structured_data = structured
-    application.job_version.structured_jd = structured.get("job")
-    _advance_for_evaluation(session, application)
+    # 已确认资料仅重新展示；解析不能覆盖人工事实或倒退招聘阶段。
+    structured = application.candidate.structured_data
+    if not structured:
+        structured = build_rule_parse(source.raw_resume if source else "", job_title=application.job.title, jd_text=application.job_version.jd_raw)
+        application.candidate.structured_data = structured
     write_audit_log(
         session,
         actor="解析Agent",
@@ -1549,7 +1491,10 @@ def evaluate_application(
     application = session.get(Application, application_id)
     if application is None:
         raise HTTPException(404, "投递记录不存在")
-    evaluation = _evaluate_application_record(session, application)
+    try:
+        evaluation = _evaluate_application_record(session, application)
+    except ValueError as exc:
+        raise HTTPException(502, str(exc)) from exc
     session.commit()
     return {
         "ok": True,
@@ -1566,14 +1511,21 @@ def decide_application(
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        application = transition_application(
-            session,
-            application_id,
-            ApplicationStatus(status),
-            actor="本地管理员",
-            is_human_action=True,
-            reason=reason or "HR 人工决定",
-        )
+        if status not in {"assessment_pending", "interview_pending", "on_hold", "rejected"}:
+            raise ValueError("请通过当前阶段的专用操作推进，不能跳过测评、笔试或入职确认")
+        current = lock_record(session, Application, application_id)
+        if current.status not in {ApplicationStatus.EVALUATION_REVIEW, ApplicationStatus.ON_HOLD}:
+            raise ValueError("通用初筛决定仅用于评估审核或暂缓阶段，请使用当前阶段的专用操作")
+        if status in {"assessment_pending", "interview_pending"}:
+            expected = "interview_pending" if current.job.recruitment_type == "internship" else "assessment_pending"
+            if status != expected:
+                raise ValueError("请按岗位招聘类型推进初筛：实习进入面试，秋招进入测评")
+            application = exams.advance_screening(session, application_id, reason=reason or "HR 人工确认初筛通过")
+        else:
+            application = transition_application(
+                session, application_id, ApplicationStatus(status), actor="本地管理员",
+                is_human_action=True, reason=reason or "HR 人工决定",
+            )
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     except (ValueError, HumanActionRequired) as exc:
@@ -1588,10 +1540,11 @@ def schedule_application(
     request: Request,
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    application = session.get(Application, application_id)
-    if application is None:
-        raise HTTPException(404, "投递记录不存在")
-    if application.status == ApplicationStatus.INTERVIEW_PENDING:
+    try:
+        application = lock_record(session, Application, application_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if application.status in {ApplicationStatus.INTERVIEW_PENDING, ApplicationStatus.NEXT_ROUND}:
         transition_application(
             session,
             application.id,
@@ -1620,7 +1573,7 @@ def schedule_application(
             session,
             application.id,
             InterviewCreate(
-                round=len(application.interviews) + 1,
+                round=max((i.round for i in application.interviews), default=0) + 1,
                 interviewers=[
                     {"name": "虚构面试官-陈老师", "email": "interviewer@example.test"}
                 ],
@@ -1631,28 +1584,42 @@ def schedule_application(
         )
     else:
         token = interview.booking_token
-        if token is None:
+        expired = not interview.booking_token_expires_at or interview.booking_token_expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc)
+        if token:
+            try:
+                verify_booking_token(token, get_setting("APP_SECRET_KEY", "change-this-local-secret"))
+            except BookingTokenError:
+                expired = True
+        if token is None or expired:
             token = create_booking_token(
                 {"application_id": application.id},
                 get_setting("APP_SECRET_KEY", "change-this-local-secret"),
             )
             interview.booking_token = token
             interview.booking_token_expires_at = datetime.now(timezone.utc) + timedelta(hours=48)
+            for old_slot in interview.slots:
+                old_slot.status = InterviewSlotStatus.RELEASED
+            write_audit_log(session, actor="HR", action="interview.booking_reissued", entity_type="interview", entity_id=interview.id)
     busy = [
         {"start_at": item.confirmed_start_at, "end_at": item.confirmed_end_at}
         for item in session.scalars(
             select(Interview).where(Interview.confirmed_start_at.is_not(None))
         ).all()
     ]
+    # 其他候选人可能已占用旧时段；检查时段时按最新忙闲重新生成。
+    for old_slot in interview.slots:
+        if old_slot.status == InterviewSlotStatus.AVAILABLE:
+            old_slot.status = InterviewSlotStatus.RELEASED
+    now = datetime.now(timezone.utc)
     slots = generate_candidate_slots(
-        datetime.now(timezone.utc) + timedelta(hours=12),
-        datetime.now(timezone.utc) + timedelta(days=7),
+        now + timedelta(hours=12),
+        now + timedelta(days=7),
         busy,
         limit=5,
         minimum_notice_minutes=60,
     )
     for slot in slots:
-        add_interview_slot(
+        saved_slot, _ = add_interview_slot(
             session,
             interview.id,
             InterviewSlotCreate(
@@ -1660,19 +1627,22 @@ def schedule_application(
             ),
             actor="排期Agent",
         )
+        if saved_slot.status == InterviewSlotStatus.RELEASED:
+            saved_slot.status = InterviewSlotStatus.AVAILABLE
     interview.status = InterviewStatus.INVITED
     session.commit()
+    session.expire(interview, ["slots"])
     return {
         "ok": True,
         "interview_id": interview.id,
-        "booking_url": str(request.base_url).rstrip("/") + f"/schedule/{token}",
+        "booking_url": public_url(f"/schedule/{token}"),
         "slots": [
             {
                 "id": item.id,
                 "start_at": item.start_at.isoformat(),
                 "end_at": item.end_at.isoformat(),
             }
-            for item in interview.slots
+            for item in interview.slots if item.status == InterviewSlotStatus.AVAILABLE
         ],
     }
 
@@ -1711,10 +1681,12 @@ def send_interview_invite_api(
         raise HTTPException(404, "面试记录不存在")
     if not interview.booking_token:
         raise HTTPException(409, "当前面试没有可发送的预约链接")
+    if interview.status not in {InterviewStatus.DRAFT, InterviewStatus.INVITED} or not interview.booking_token_expires_at or interview.booking_token_expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
+        raise HTTPException(409, "预约已确认或链接已过期，请在原轮次重新生成时段")
     candidate = interview.application.candidate
     if not candidate.email:
         raise HTTPException(422, "候选人邮箱缺失，请先在候选人详情补充邮箱")
-    booking_url = str(request.base_url).rstrip("/") + f"/schedule/{interview.booking_token}"
+    booking_url = public_url(f"/schedule/{interview.booking_token}")
     result = send_email_notification(
         session,
         recipient=candidate.email,
@@ -1727,7 +1699,7 @@ def send_interview_invite_api(
         ),
         target_type="interview",
         target_id=interview.id,
-        template="interview_invite",
+        template="interview_invite_" + interview.booking_token[-24:],
     )
     notify_internal(
         session,
@@ -1750,9 +1722,7 @@ def send_interview_invite_api(
     )
     session.commit()
     return {
-        "ok": True,
-        "message": "预约邮件已发送" if result.status == NotificationStatus.SENT else "SMTP 未配置，已生成 Mock 预约邮件记录",
-        "status": result.status.value,
+        **notification_result(result),
         "booking_url": booking_url,
     }
 
@@ -1786,10 +1756,11 @@ def create_offer_api(
 def approve_offer_api(
     offer_id: int,
     reason: str = Form("单级审批通过"),
+    version: int = Form(...),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        offer = approve_offer(session, offer_id, reason=reason)
+        offer = approve_offer(session, offer_id, reason=reason, version=version)
         session.commit()
         return {"ok": True, "offer_id": offer.id, "status": offer.status.value}
     except ValueError as exc:
@@ -1833,21 +1804,19 @@ def send_offer_api(
     try:
         offer = send_offer(session, offer_id)
         session.commit()
-        return {
-            "ok": True,
-            "offer_id": offer.id,
-            "status": offer.status.value,
-            "candidate_email": offer.candidate_email,
-            "offer_url": f"/offer/{offer.candidate_token}",
-        }
+        notification = session.scalar(select(Notification).where(Notification.target_type == "offer", Notification.target_id == offer.id, Notification.channel == "email").order_by(Notification.id.desc()))
+        return {**(notification_result(notification) if notification else {"ok": True}),
+                "offer_id": offer.id, "status": offer.status.value, "candidate_email": offer.candidate_email,
+                "offer_url": public_url(f"/offer/{offer.candidate_token}")}
     except ValueError as exc:
         session.rollback()
         raise HTTPException(422, str(exc)) from exc
 
 
 @app.get("/api/offers")
-def offers_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    offers = list_offers(session, limit=200)
+def offers_api(request: Request, session: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    offers = session.scalars(select(Offer).where(Offer.application_id.in_(
+        _application_ids(_recruitment_type(request)))).order_by(desc(Offer.created_at)).limit(200)).all()
     return [
         {
             "id": offer.id,
@@ -1856,6 +1825,7 @@ def offers_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
             "candidate_name": offer.candidate_name,
             "candidate_email": offer.candidate_email,
             "job_title": offer.job_title,
+            "recruitment_type": offer.application.job.recruitment_type,
             "sent_at": offer.sent_at.isoformat() if offer.sent_at else None,
             "candidate_token": offer.candidate_token,
             "created_at": offer.created_at.isoformat(),
@@ -1915,14 +1885,16 @@ def complete_onboarding_task_api(
 
 
 @app.get("/api/onboarding")
-def onboarding_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    tasks = list_onboarding_tasks(session, limit=200)
+def onboarding_api(request: Request, session: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    tasks = session.scalars(select(OnboardingTask).where(OnboardingTask.application_id.in_(
+        _application_ids(_recruitment_type(request)))).order_by(OnboardingTask.due_at).limit(200)).all()
     return [
         {
             "id": task.id,
             "offer_id": task.offer_id,
             "application_id": task.offer.application_id if task.offer else None,
             "candidate_name": task.offer.candidate_name if task.offer else "",
+            "recruitment_type": task.offer.application.job.recruitment_type,
             "title": task.title,
             "status": task.status.value,
             "due_at": task.due_at.isoformat() if task.due_at else None,
@@ -1933,8 +1905,8 @@ def onboarding_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
 
 
 @app.post("/api/sync/tencent-docs")
-def sync_tencent_docs_api(session: Session = Depends(get_db)) -> dict[str, Any]:
-    rows = _export_rows(session)
+def sync_tencent_docs_api(request: Request, session: Session = Depends(get_db)) -> dict[str, Any]:
+    rows = _export_rows(session, _recruitment_type(request))
     run = record_export_run(
         session,
         export_type="tencent_docs",
@@ -1970,6 +1942,8 @@ def booking_page(token: str, request: Request, session: Session = Depends(get_db
     interview = session.scalar(select(Interview).where(Interview.booking_token == token))
     if interview is None or payload.get("application_id") != interview.application_id:
         raise HTTPException(404, "预约不存在或已完成")
+    if not interview.booking_token_expires_at or interview.booking_token_expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
+        raise HTTPException(410, "预约已过期，请联系 HR 在原轮次重签")
     return templates.TemplateResponse(
         request=request,
         name="booking.html",
@@ -1991,6 +1965,9 @@ def confirm_booking(
     slot_id: int = Form(...),
     session: Session = Depends(get_db),
 ):
+    # 所有预约争用同一 SQLite 写锁，再重新检查全局时段占用。
+    from sqlalchemy import update
+    session.execute(update(Interview).where(Interview.id == -1).values(id=Interview.id))
     try:
         verify_booking_token(
             token, get_setting("APP_SECRET_KEY", "change-this-local-secret")
@@ -2001,6 +1978,12 @@ def confirm_booking(
     slot = session.get(InterviewSlot, slot_id)
     if interview is None or slot is None or slot.interview_id != interview.id:
         raise HTTPException(404, "预约时段不存在")
+    if interview.confirmed_start_at or interview.status not in {InterviewStatus.DRAFT, InterviewStatus.INVITED}:
+        raise HTTPException(409, "本轮预约已确认，不能覆盖")
+    if not interview.booking_token_expires_at or interview.booking_token_expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
+        raise HTTPException(410, "预约链接已过期，请联系 HR 重签")
+    if appointment_time(slot.start_at) <= datetime.now(timezone.utc):
+        raise HTTPException(409, "预约时段已过期")
     if slot.status != InterviewSlotStatus.AVAILABLE:
         raise HTTPException(409, "该时段已不可用")
     confirmed = session.scalars(
@@ -2015,8 +1998,27 @@ def confirm_booking(
             slot.end_at,
             other.confirmed_start_at,
             other.confirmed_end_at,
+            buffer_minutes=DEFAULT_BUFFER_MINUTES,
         ):
             raise HTTPException(409, "该时段刚被占用，请重新选择")
+
+    try:
+        meeting = create_mock_tencent_meeting(
+            title=f"{interview.application.job.title}面试",
+            start_at=slot.start_at,
+            end_at=slot.end_at,
+            participants=interview.interviewers or [],
+            idempotency_key=f"interview-{interview.id}-{slot.id}",
+        )
+        meeting_url = meeting["join_url"]
+        if not meeting_url:
+            raise ValueError("Mock 会议缺少链接")
+    except Exception as exc:
+        interview.meeting_status = "mock_failed"
+        write_audit_log(session, actor="会议程序", action="interview.meeting_failed", entity_type="interview", entity_id=interview.id,
+                        details={"mode": "mock", "error_type": type(exc).__name__})
+        session.commit()
+        raise HTTPException(503, "Mock 会议创建失败，预约尚未确认，请稍后使用本链接重试") from exc
 
     for item in interview.slots:
         item.status = (
@@ -2027,14 +2029,7 @@ def confirm_booking(
     interview.confirmed_start_at = slot.start_at
     interview.confirmed_end_at = slot.end_at
     interview.status = InterviewStatus.CONFIRMED
-    meeting = create_mock_tencent_meeting(
-        title=f"{interview.application.job.title}面试",
-        start_at=slot.start_at,
-        end_at=slot.end_at,
-        participants=interview.interviewers or [],
-        idempotency_key=f"interview-{interview.id}-{slot.id}",
-    )
-    interview.meeting_url = meeting["join_url"]
+    interview.meeting_url = meeting_url
     interview.meeting_status = "mock_created"
     interview.calendar_status = "demo_created"
     interview.booking_token = None
@@ -2065,8 +2060,9 @@ def confirm_booking(
 
 
 @app.get("/api/follow-ups")
-def followups_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    tasks = session.scalars(select(FollowUpTask).order_by(FollowUpTask.due_at)).all()
+def followups_api(request: Request, session: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    recruitment_type = _recruitment_type(request)
+    tasks = session.scalars(select(FollowUpTask).where(_followup_scope(_application_ids(recruitment_type)) if recruitment_type != "all" else True).order_by(FollowUpTask.due_at)).all()
     return [
         {
             "id": task.id,
@@ -2090,9 +2086,9 @@ def resolve_followup(task_id: int, session: Session = Depends(get_db)) -> dict[s
     return {"ok": True, "id": task.id, "status": task.status.value}
 
 
-def _export_rows(session: Session) -> list[dict[str, Any]]:
+def _export_rows(session: Session, recruitment_type: str = "all") -> list[dict[str, Any]]:
     records = []
-    for row in _application_rows(session):
+    for row in _application_rows(session, recruitment_type):
         application = session.get(Application, row["id"])
         latest_offer = max(application.offers, key=lambda item: item.created_at) if application and application.offers else None
         onboarding_open = (
@@ -2103,6 +2099,7 @@ def _export_rows(session: Session) -> list[dict[str, Any]]:
         records.append({
             "candidate_name": row["candidate_name"],
             "job_title": row["job_title"],
+            "recruitment_type": row["recruitment_type_label"],
             "status": row["status_label"],
             "total_score": row["score"],
             "owner": row["owner"],
@@ -2110,14 +2107,18 @@ def _export_rows(session: Session) -> list[dict[str, Any]]:
             "offer_status": latest_offer.status.value if latest_offer else "",
             "offer_sent_at": latest_offer.sent_at if latest_offer else "",
             "onboarding_open": onboarding_open,
+            "assessment": row["exam_decisions"].get("assessment", {}).get("result", "历史未记录 / 未办理"),
+            "written": row["exam_decisions"].get("written", {}).get("result", "历史未记录 / 未办理"),
+            "onboarding_state": (application.extra_data or {}).get("onboarding", {}).get("state", ""),
+            "actual_date": (application.extra_data or {}).get("onboarding", {}).get("actual_date", ""),
             "updated_at": row["updated_at"],
         })
     return records
 
 
 @app.get("/api/exports/recruitment.xlsx")
-def export_xlsx_api(session: Session = Depends(get_db)) -> Response:
-    rows = _export_rows(session)
+def export_xlsx_api(request: Request, session: Session = Depends(get_db)) -> Response:
+    rows = _export_rows(session, _recruitment_type(request))
     content = export_recruitment_xlsx(rows)
     record_export_run(
         session,
@@ -2136,8 +2137,8 @@ def export_xlsx_api(session: Session = Depends(get_db)) -> Response:
 
 
 @app.get("/api/exports/recruitment.csv")
-def export_csv_api(session: Session = Depends(get_db)) -> Response:
-    rows = _export_rows(session)
+def export_csv_api(request: Request, session: Session = Depends(get_db)) -> Response:
+    rows = _export_rows(session, _recruitment_type(request))
     content = export_recruitment_csv(rows)
     record_export_run(
         session,
@@ -2156,8 +2157,8 @@ def export_csv_api(session: Session = Depends(get_db)) -> Response:
 
 
 @app.get("/api/dashboard/summary")
-def dashboard_summary(session: Session = Depends(get_db)) -> dict[str, Any]:
-    return _dashboard_data(session)
+def dashboard_summary(request: Request, session: Session = Depends(get_db)) -> dict[str, Any]:
+    return _dashboard_data(session, _recruitment_type(request))
 
 
 @app.get("/api/audit")
@@ -2177,3 +2178,221 @@ def audit_api(session: Session = Depends(get_db)) -> list[dict[str, Any]]:
         }
         for log in logs
     ]
+
+
+from pathlib import Path
+from fastapi.responses import FileResponse
+from app.models import ExamResource, ExamDispatch
+from app.services import exams
+
+
+@app.get("/exams")
+def exams_page(request: Request, application_id: int | None = None, resource_id: int | None = None, session: Session = Depends(get_db)):
+    recruitment_type = _recruitment_type(request)
+    application_ids = _application_ids(recruitment_type)
+    job_scope = True if recruitment_type == "all" else Job.recruitment_type == recruitment_type
+    resource_scope = ExamResource.job_id.in_(select(Job.id).where(job_scope))
+    application = session.get(Application, application_id) if application_id else None
+    resource = session.get(ExamResource, resource_id) if resource_id else None
+    if application and recruitment_type != "all" and application.job.recruitment_type != recruitment_type:
+        application = None
+    if resource and recruitment_type != "all" and resource.job_id not in session.scalars(select(Job.id).where(job_scope)).all():
+        resource = None
+    preview, preview_error = None, None
+    if application and resource:
+        try:
+            preview = exams.preview_dispatch(application, resource)
+        except ValueError as exc:
+            preview_error = str(exc)
+    dispatches = session.scalars(select(ExamDispatch).where(ExamDispatch.application_id.in_(application_ids)).order_by(ExamDispatch.id.desc())).all()
+    return _render(request, session, "exams.html", "exams", kinds=exams.KINDS,
+        resources=session.scalars(select(ExamResource).where(resource_scope if recruitment_type != "all" else True).order_by(ExamResource.id.desc())).all(),
+        jobs=session.scalars(select(Job).where(job_scope).order_by(Job.id)).all(),
+        applications=session.scalars(select(Application).where(Application.id.in_(application_ids), Application.status.in_([ApplicationStatus.ASSESSMENT_PENDING, ApplicationStatus.WRITTEN_PENDING]))).all(),
+        selected_application=application, preview=preview, preview_error=preview_error, resource_request_key=secrets.token_hex(16),
+        dispatches=[{"record": d, "notification": exams.dispatch_notification(session, d.id)} for d in dispatches])
+
+
+@app.post("/api/exams/resources")
+async def create_exam_resource(kind: str = Form(...), title: str = Form(...), url: str = Form(...), job_id: int = Form(...),
+                               request_key: str | None = Form(None), file: UploadFile | None = File(None), session: Session = Depends(get_db)):
+    stored = None
+    try:
+        exams.validate_resource(kind, title, url)
+        if session.get(Job, job_id) is None:
+            raise ValueError("请选择已有岗位")
+        from hashlib import sha256
+        from io import BytesIO
+        from zipfile import ZipFile, BadZipFile
+        content = b""
+        if file and file.filename:
+            if Path(file.filename).suffix.lower() not in {".pdf", ".docx"}:
+                raise ValueError("内部试卷文件仅支持 PDF 或 DOCX")
+            content = await file.read(int(get_setting("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024))) + 1)
+            if not content:
+                raise ValueError("内部试卷文件不能为空")
+            if Path(file.filename).suffix.lower() == ".pdf" and not content.startswith(b"%PDF-"):
+                raise ValueError("文件内容不是 PDF")
+            if Path(file.filename).suffix.lower() == ".docx":
+                try:
+                    with ZipFile(BytesIO(content)) as archive:
+                        if "word/document.xml" not in archive.namelist():
+                            raise ValueError("文件内容不是 DOCX")
+                except BadZipFile as exc:
+                    raise ValueError("DOCX 文件结构损坏") from exc
+        signature = sha256(f"{job_id}|{kind}|{title.strip()}|{url.strip()}|".encode() + content).hexdigest()
+        request_key = request_key or signature
+        if len(request_key) > 64:
+            raise ValueError("请求标识过长")
+        lock_record(session, Job, job_id)
+        existing = session.scalar(select(ExamResource).where(ExamResource.request_key == request_key))
+        if existing:
+            previous_content = Path(existing.file_path).read_bytes() if existing.file_path and Path(existing.file_path).is_file() else b""
+            if (existing.job_id, existing.kind, existing.title, existing.url, previous_content) != (job_id, kind, title.strip(), url.strip(), content):
+                raise ValueError("同一请求的资源内容已改变，请刷新页面后重新登记")
+            return {"ok": True, "resource_id": existing.id, "redirect": "/exams", "message": "该请求已登记"}
+        if file and file.filename:
+            stored = store_upload_bytes(original_filename=file.filename, content=content, content_type=file.content_type)
+        resource = ExamResource(kind=kind, title=title.strip(), url=url.strip(), job_id=job_id, request_key=request_key,
+                                file_path=str(stored.file_path.resolve()) if stored else None,
+                                filename=stored.original_filename if stored else None)
+        session.add(resource)
+        session.flush()
+        write_audit_log(session, actor="HR", action="exam_resource.created", entity_type="exam_resource", entity_id=resource.id,
+                        after_data={"kind": kind, "title": title, "url": url})
+        session.commit()
+        return {"ok": True, "resource_id": resource.id, "redirect": "/exams"}
+    except ValueError as exc:
+        session.rollback()
+        if stored:
+            stored.file_path.unlink(missing_ok=True)
+        raise HTTPException(422, str(exc)) from exc
+    finally:
+        if file:
+            await file.close()
+
+
+@app.get("/api/exams/resources/{resource_id}/file")
+def download_exam_resource(resource_id: int, session: Session = Depends(get_db)):
+    resource = session.get(ExamResource, resource_id)
+    if not resource or not resource.file_path or not Path(resource.file_path).is_file():
+        raise HTTPException(404, "内部留存文件不存在")
+    return FileResponse(resource.file_path, filename=resource.filename, media_type="application/octet-stream")
+
+
+@app.post("/api/exams/resources/{resource_id}/delete")
+def delete_exam_resource(resource_id: int, session: Session = Depends(get_db)):
+    try:
+        resource = session.get(ExamResource, resource_id)
+        path = Path(resource.file_path) if resource and resource.file_path else None
+        action = exams.delete_or_disable(session, resource_id)
+        session.commit()
+        if action == "deleted" and path:
+            path.unlink(missing_ok=True)
+        return {"ok": True, "message": "资源已停用，历史发放保留" if action == "disabled" else "资源已删除"}
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/applications/{application_id}/exams/send")
+def send_exam_api(application_id: int, resource_id: int = Form(...), candidate_revision: int = Form(...), session: Session = Depends(get_db)):
+    try:
+        notification = exams.send_exam(session, application_id, resource_id, candidate_revision=candidate_revision)
+        return notification_result(notification)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/applications/{application_id}/exams/decision")
+def decide_exam_api(application_id: int, kind: str = Form(...), result: str = Form(...), note: str = Form(...), version: int = Form(...), session: Session = Depends(get_db)):
+    try:
+        application = exams.decide_exam(session, application_id, kind=kind, result=result, note=note, version=version)
+        session.commit()
+        return {"ok": True, "status": application.status.value, "message": "HR 结论已保存", "redirect": f"/candidates/{application.candidate_id}?application_id={application.id}"}
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
+def notification_result(notification: Notification) -> dict:
+    channel = "内部通知" if notification.channel == "wecom" else "邮件"
+    return {"ok": notification.status in exams.DELIVERED, "notification_id": notification.id, "status": notification.status.value,
+            "message": {"mocked": f"已生成 Mock {channel}记录（未真实发送）", "sent": f"{channel}已发送", "failed": f"{channel}发送失败，可检查配置后重试",
+                        "sending": "发送处理中，请勿重复提交", "unknown": "送达结果未知，请先在通知中心核实"}.get(notification.status.value, notification.status.value)}
+
+
+@app.post("/api/offers/{offer_id}/terms")
+async def edit_offer_terms_api(offer_id: int, request: Request, session: Session = Depends(get_db)):
+    try:
+        form = dict(await request.form())
+        offer = save_offer_terms(session, offer_id, form, version=int(form.pop("version")))
+        session.commit()
+        return {"ok": True, "message": "条款已保存，需要重新审批", "revision": offer.terms["revision"]}
+    except (ValueError, KeyError) as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/offers/{offer_id}/return")
+def return_offer_api(offer_id: int, version: int = Form(...), reason: str = Form(...), session: Session = Depends(get_db)):
+    try:
+        return_offer(session, offer_id, version=version, reason=reason)
+        session.commit()
+        return {"ok": True, "message": "已退回修改"}
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/applications/{application_id}/onboarding")
+async def onboarding_registration_api(application_id: int, request: Request, session: Session = Depends(get_db)):
+    from app.services.onboarding import update_onboarding
+    try:
+        form = dict(await request.form())
+        application = update_onboarding(session, application_id, action=form.pop("action"), version=int(form.pop("version")), values=form)
+        session.commit()
+        return {"ok": True, "status": application.status.value, "message": "入职办理记录已保存"}
+    except (ValueError, KeyError) as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/notifications/{notification_id}/verify")
+def verify_delivery(notification_id: int, delivered: str = Form(...), note: str = Form(...), session: Session = Depends(get_db)):
+    try:
+        notification = lock_record(session, Notification, notification_id)
+        if notification.status != NotificationStatus.UNKNOWN or delivered not in {"true", "false"} or not note.strip():
+            raise ValueError("仅能核实未知送达记录，且必须填写人工核实依据")
+        notification.status = NotificationStatus.SENT if delivered == "true" else NotificationStatus.FAILED
+        write_audit_log(session, actor="HR", action="notification.verified", entity_type="notification", entity_id=notification.id,
+                        after_data={"delivered": delivered, "note": note})
+        if delivered == "true" and notification.target_type == "offer":
+            record_offer_delivery(session, notification.target_id, notification)
+        session.commit()
+        return {"ok": True, "message": "核实已保存；确认未送达后可从原业务入口重试"}
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/notifications/{notification_id}/retry")
+def retry_internal_notification(notification_id: int, session: Session = Depends(get_db)):
+    try:
+        previous = lock_record(session, Notification, notification_id)
+        if previous.channel != "wecom" or previous.status != NotificationStatus.FAILED:
+            raise ValueError("仅可重试失败的内部通知；邮件请从原业务入口处理")
+        retry_id = (previous.provider_response or {}).get("retry_id")
+        if retry_id:
+            return notification_result(session.get(Notification, retry_id))
+        notification = notify_internal(session, title=previous.subject or "内部提醒", content=previous.content,
+                                       target_type=previous.target_type, target_id=previous.target_id)
+        previous.provider_response = {**(previous.provider_response or {}), "retry_id": notification.id}
+        notification.provider_response = {**(notification.provider_response or {}), "retry_of": previous.id}
+        write_audit_log(session, actor="HR", action="notification.retried", entity_type="notification", entity_id=notification.id,
+                        details={"previous_id": previous.id, "status": notification.status.value})
+        session.commit()
+        return notification_result(notification)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc

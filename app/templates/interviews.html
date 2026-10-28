@@ -6,18 +6,19 @@
 {% set interview_labels = {'draft':'待预约','invited':'已邀请','confirmed':'已确认','completed':'已完成','cancelled':'已取消'} %}
 <div class="workflow-page calendar-layout">
   <aside class="work-surface"><header class="surface-header"><div><h2 class="surface-title">面试队列 <span class="count-badge">{{ interviews|length }}</span></h2><p class="card-subtitle">按最近创建排序</p></div></header><div class="surface-body task-list">
-    {% for interview in interviews %}<a class="task-item" href="#interview-{{ interview.id }}" data-interview-target="interview-{{ interview.id }}"><span class="task-marker"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg></span><span class="task-copy"><strong>{{ interview.application.candidate.name }}</strong><small>{{ interview.application.job.title }}</small><small>第 {{ interview.round }} 轮 · {{ interview_labels.get(interview.status.value, interview.status.value) }}</small></span><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a>{% else %}<div class="empty-state"><h3>暂无面试记录</h3><p>人工审核通过后，在候选人详情生成面试时段。</p></div>{% endfor %}
+    {% for interview in interviews %}<a class="task-item" href="#interview-{{ interview.id }}" data-interview-target="interview-{{ interview.id }}"><span class="task-marker"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg></span><span class="task-copy"><strong>{{ interview.application.candidate.name }}</strong><small>{{ interview.application.job.title }} · {{ recruitment_types[interview.application.job.recruitment_type] }}</small><small>第 {{ interview.round }} 轮 · {{ interview_labels.get(interview.status.value, interview.status.value) }}</small></span><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a>{% else %}<div class="empty-state"><h3>暂无面试记录</h3><p>人工审核通过后，在候选人详情生成面试时段。</p></div>{% endfor %}
   </div></aside>
   <section class="work-surface"><header class="surface-header"><div><h2 class="surface-title">面试安排与反馈</h2><p class="card-subtitle">面试结束后提交反馈，进入下一轮、淘汰或发 Offer</p></div></header><div class="surface-body calendar-list">
     {% for interview in interviews %}
     <details class="interview-record" id="interview-{{ interview.id }}" {% if loop.first %}open{% endif %}>
     <summary class="calendar-row">
       <div><strong>{{ interview.application.candidate.name }}</strong><small class="muted">第 {{ interview.round }} 轮 · 展开处理</small></div>
-      <div><strong>{{ interview.application.job.title }}</strong><small class="muted">候选时段 {{ interview.slots|length }} 个 · {% if interview.confirmed_start_at %}{{ (interview.confirmed_start_at|appointment_time).strftime('%Y-%m-%d %H:%M') }} 北京时间{% else %}待候选人确认{% endif %}</small></div>
+      <div><strong>{{ interview.application.job.title }}</strong><span class="tag">{{ recruitment_types[interview.application.job.recruitment_type] }}</span><small class="muted">候选时段 {{ interview.slots|length }} 个 · {% if interview.confirmed_start_at %}{{ (interview.confirmed_start_at|appointment_time).strftime('%Y-%m-%d %H:%M') }} 北京时间{% else %}待候选人确认{% endif %}</small></div>
       <span class="status {% if interview.status.value in ['confirmed','completed'] %}status-success{% else %}status-warning{% endif %}">{{ interview_labels.get(interview.status.value, interview.status.value) }}</span>
     </summary>
     <div class="interview-record-body">
     <a class="workflow-text-link" href="/candidates/{{ interview.application.candidate_id }}?application_id={{ interview.application.id }}">查看候选人资料</a>
+    {% if interview.application.status.value in ['scheduling','next_round'] %}<form method="post" action="/api/applications/{{ interview.application.id }}/schedule"><button class="button" type="submit">{{ '安排下一轮' if interview.application.status.value == 'next_round' else '检查时段 / 过期重签' }}</button></form>{% endif %}
     {% set booking_url = booking_urls.get(interview.id) %}
     {% if booking_url %}
     <div class="inline-form">
@@ -35,7 +36,7 @@
     {% elif interview.status.value not in ['confirmed', 'completed'] %}
     <div class="inline-form"><p class="card-subtitle">请先在候选人详情中点击“生成面试时段”，生成后这里会展示候选人预约链接。</p></div>
     {% endif %}
-    {% if interview.status.value in ['confirmed', 'completed'] %}
+    {% if interview.status.value == 'confirmed' %}
     <form class="inline-form" method="post" action="/api/interviews/{{ interview.id }}/feedback">
       <div class="form-grid">
         <div class="field"><label for="result-{{ interview.id }}">反馈结论</label><input class="input" id="result-{{ interview.id }}" name="result" value="{{ interview.feedback.result if interview.feedback else '通过' }}" required></div>
@@ -44,6 +45,7 @@
       <div class="field"><label for="comment-{{ interview.id }}">面试反馈</label><textarea class="textarea" id="comment-{{ interview.id }}" name="comment" placeholder="填写面试证据、风险和建议">{{ interview.feedback.comment if interview.feedback else '' }}</textarea></div>
       <div class="form-actions"><button class="button button-primary" type="submit">提交反馈</button></div>
     </form>
+    {% elif interview.feedback %}<p>第 {{ interview.round }} 轮反馈：{{ interview.feedback.result }} · {{ interview.feedback.comment }} · {{ interview.feedback.actor }}</p>
     {% else %}
     <div class="inline-form"><p class="card-subtitle">候选人确认面试时间后，才开放面试反馈与 Offer 决策入口。</p></div>
     {% endif %}

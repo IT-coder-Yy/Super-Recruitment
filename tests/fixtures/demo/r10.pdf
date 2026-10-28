@@ -1,0 +1,114 @@
+%PDF-1.3
+%‚„œ”
+1 0 obj
+<<
+/Producer (pypdf)
+>>
+endobj
+2 0 obj
+<<
+/Type /Pages
+/Count 2
+/Kids [ 6 0 R 8 0 R ]
+>>
+endobj
+3 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+4 0 obj
+<<
+/Type /Font
+/Subtype /CIDFontType0
+/BaseFont /STSong-Light
+/CIDSystemInfo <<
+/Registry (Adobe)
+/Ordering (GB1)
+/Supplement 4
+>>
+>>
+endobj
+5 0 obj
+<<
+/Type /Font
+/Subtype /Type0
+/BaseFont /STSong-Light
+/Encoding /UniGB-UCS2-H
+/DescendantFonts [ 4 0 R ]
+>>
+endobj
+6 0 obj
+<<
+/Type /Page
+/Resources <<
+/Font <<
+/F1 5 0 R
+>>
+>>
+/MediaBox [ 0.0 0.0 595 842 ]
+/Parent 2 0 R
+/Contents 7 0 R
+>>
+endobj
+7 0 obj
+<<
+/Length 495
+>>
+stream
+BT /F1 9 Tf 42 790 Td 24 TL
+<59d3540dff1a5b8b6eaa> Tj T*
+<90ae7bb1ff1a00730079006e007400680065007400690063002d0072003100300040006500780061006d0070006c0065002e0074006500730074> Tj T*
+<655980b2ff1a865a678459275b668ba17b97673a672c79d157288bfb> Tj T*
+<628080fdff1a00540079007000650053006300720069007000743001005200650061006300743001004300530053> Tj T*
+<987976eeff1a0052006500610063007400208868535568219a8c548c79fb52a85e035c40ff0c63d04f9b952e76d85bfc822a8bf4660eff0c672a8bf4660e6d4b8bd53002> Tj T*
+ET
+endstream
+endobj
+8 0 obj
+<<
+/Type /Page
+/Resources <<
+/Font <<
+/F1 5 0 R
+>>
+>>
+/MediaBox [ 0.0 0.0 595 842 ]
+/Parent 2 0 R
+/Contents 9 0 R
+>>
+endobj
+9 0 obj
+<<
+/Length 261
+>>
+stream
+BT /F1 9 Tf 42 790 Td 24 TL
+<7ecf5386ff1a682156ed987976eeff0c65e04f014e1a5b9e4e603002> Tj T*
+<610f5411ff1a6bcf546853ef5b9e4e6056db5929> Tj T*
+<58f0660eff1a624067094e2a4eba4e0e516c53f84fe1606f4e3a865a67846d4b8bd56570636eff0c79816b62771f5b9e80547cfb3002> Tj T*
+ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000054 00000 n 
+0000000119 00000 n 
+0000000168 00000 n 
+0000000317 00000 n 
+0000000441 00000 n 
+0000000573 00000 n 
+0000001119 00000 n 
+0000001251 00000 n 
+trailer
+<<
+/Size 10
+/Root 3 0 R
+/Info 1 0 R
+>>
+startxref
+1563
+%%EOF

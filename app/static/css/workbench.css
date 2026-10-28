@@ -1,6 +1,8 @@
 .home-page .page-heading { display: flex; align-items: baseline; gap: 20px; }
 .home-page .page-heading p { margin: 0; }
 .wb-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.home-page .wb-board { grid-template-columns: repeat(6, minmax(190px, 1fr)); }
+@media (max-width: 760px) { .home-page .wb-flow-steps { flex-wrap: wrap; gap: 12px; } .home-page .wb-flow-steps li { flex: 0 0 22%; } }
 .wb-flow { display: flex; align-items: center; gap: 30px; padding: 20px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .wb-flow-heading { flex: 0 0 auto; }
 .wb-flow-heading h2 { margin: 0 0 3px; font-size: 18px; line-height: 1.4; }

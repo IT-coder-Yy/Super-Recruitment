@@ -4,6 +4,12 @@ import base64
 import hashlib
 import hmac
 import os
+from contextvars import ContextVar
+
+current_actor: ContextVar[str | None] = ContextVar("current_actor", default=None)
+from contextvars import ContextVar
+
+current_actor: ContextVar[str | None] = ContextVar("current_actor", default=None)
 
 
 SCRYPT_N = 2**14

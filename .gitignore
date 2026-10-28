@@ -1,5 +1,7 @@
 # === 环境与密钥 ===
 .env
+runtime.env
+*.runtime.env
 
 # === 方案与设计文档 ===
 AI招聘自动化落地方案.md
@@ -12,6 +14,8 @@ PRODUCT.md
 
 # === Python 缓存 ===
 .pytest_cache/
+.test-runs/
+output/
 __pycache__/
 *.py[cod]
 
@@ -20,6 +24,7 @@ data/*.db
 data/*.sqlite*
 data/exports/
 data/uploads/
+data/backups/
 
 # === 测试覆盖率 ===
 .coverage

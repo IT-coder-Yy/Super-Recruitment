@@ -22,6 +22,8 @@ STAGES = (
         "captured", "parsing", "needs_review", "parsed", "deduplicated",
         "evaluating", "evaluation_review", "on_hold",
     }),
+    ("assessment", "测评", "外部试卷发放与 HR 结论", {"assessment_pending"}),
+    ("written", "笔试", "外部试卷发放与 HR 结论", {"written_pending"}),
     ("interview", "面试", "排期、面试与反馈", {
         "interview_pending", "scheduling", "interview_confirmed", "interviewed",
         "feedback_pending", "next_round",
@@ -54,6 +56,7 @@ def build_workbench_context(
     summary: dict[str, Any],
     *,
     now: datetime | None = None,
+    recruitment_type: str = "all",
 ) -> dict[str, Any]:
     now = _utc(now or datetime.now(timezone.utc))
     local_zone = ZoneInfo(DEFAULT_TIMEZONE)
@@ -61,8 +64,9 @@ def build_workbench_context(
     day_start = datetime.combine(today, time.min, tzinfo=local_zone)
     day_end = day_start + timedelta(days=1)
 
+    application_ids = [row["id"] for row in rows]
     job_ids = dict(session.execute(select(Application.id, Application.job_id)).all())
-    offers = session.scalars(select(Offer).order_by(Offer.created_at.desc(), Offer.id.desc())).all()
+    offers = session.scalars(select(Offer).where(True if recruitment_type == "all" else Offer.application_id.in_(application_ids)).order_by(Offer.created_at.desc(), Offer.id.desc())).all()
     latest_offers: dict[int, Offer] = {}
     for offer in offers:
         latest_offers.setdefault(offer.application_id, offer)
@@ -73,10 +77,14 @@ def build_workbench_context(
         FollowUpTask.status == FollowUpStatus.OPEN,
         FollowUpTask.due_at <= now,
     )) or 0
+    if recruitment_type != "all":
+        overdue_count = summary.get("overdue", 0)
 
     columns = []
     jobs: dict[int, str] = {}
     for stage_key, label, description, statuses in STAGES:
+        if recruitment_type == "internship" and stage_key in {"assessment", "written"}:
+            continue
         cards = []
         for row in rows:
             if row["status"] not in statuses:
@@ -84,7 +92,7 @@ def build_workbench_context(
             card = dict(row)
             card["job_id"] = job_ids[row["id"]]
             card["stage"] = stage_key
-            card["href"] = f"/candidates/{row['candidate_id']}?application_id={row['id']}"
+            card["href"] = f"/candidates/{row['candidate_id']}?recruitment_type={row.get('recruitment_type', 'autumn')}&application_id={row['id']}"
             card["action"] = "查看资料"
             card["action_href"] = card["href"]
             card["tone"] = "neutral"
@@ -110,10 +118,14 @@ def build_workbench_context(
                     card["action"] = "复核证据"
                 if row.get("missing_information"):
                     card["facts"].append(("待确认", "；".join(row["missing_information"])))
+            elif stage_key in {"assessment", "written"}:
+                card["note"] = "发放外部试卷，由 HR 核实并记录结论。"
+                card["action"] = "办理考试"
+                card["action_href"] = f"/exams?recruitment_type={row.get('recruitment_type', 'autumn')}&application_id={row['id']}"
             elif stage_key == "interview":
                 card["tone"] = "info"
                 if row.get("interview_id"):
-                    card["action_href"] = f"/interviews#interview-{row['interview_id']}"
+                    card["action_href"] = f"/interviews?recruitment_type={row.get('recruitment_type', 'autumn')}#interview-{row['interview_id']}"
                     card["action"] = "补充反馈" if row["status"] == "feedback_pending" else "查看面试"
                 else:
                     card["action"] = "安排面试"
@@ -129,7 +141,7 @@ def build_workbench_context(
                 offer = latest_offers.get(row["id"])
                 if offer:
                     card["status_label"] = OFFER_LABELS[offer.status.value]
-                    card["action_href"] = f"/offers?offer_id={offer.id}"
+                    card["action_href"] = f"/offers?recruitment_type={offer.application.job.recruitment_type}&offer_id={offer.id}"
                     card["facts"].append(("预计报到", offer.report_time or "待确认"))
                     card["note"] = "方案经人工审批后发放。" if offer.status in {OfferStatus.DRAFT, OfferStatus.PENDING_APPROVAL} else "查看 Offer 内容与候选人回复。"
                 else:
@@ -139,7 +151,7 @@ def build_workbench_context(
             else:
                 card["note"] = f"{onboarding[row['id']]} 项入职事项待完成。" if onboarding[row["id"]] else "当前没有未完成的入职事项。"
                 card["action"] = "入职跟进"
-                card["action_href"] = "/onboarding"
+                card["action_href"] = f"/onboarding?recruitment_type={row.get('recruitment_type', 'autumn')}"
                 card["facts"].append(("负责人", row.get("owner") or "未分配"))
                 offer = latest_offers.get(row["id"])
                 if offer and offer.report_time:
@@ -155,6 +167,7 @@ def build_workbench_context(
         Interview.status.in_([InterviewStatus.CONFIRMED, InterviewStatus.COMPLETED]),
         Interview.confirmed_start_at >= day_start,
         Interview.confirmed_start_at < day_end,
+        True if recruitment_type == "all" else Interview.application_id.in_(application_ids),
     ).order_by(Interview.confirmed_start_at, Interview.id)).all()
     next_interview = next((item for item in today_interviews
         if item.status == InterviewStatus.CONFIRMED and
@@ -174,17 +187,19 @@ def build_workbench_context(
         "is_next": item is next_interview,
         "timing_label": "当前时段" if appointment_time(item.confirmed_start_at) <= now else "下一场",
         "is_completed": item.status == InterviewStatus.COMPLETED,
-        "href": f"/interviews#interview-{item.id}",
+        "href": f"/interviews?recruitment_type={item.application.job.recruitment_type}#interview-{item.id}",
     } for item in visible_interviews]
 
     flow = [{"key": key, "label": label, "icon": icon, "count": summary.get("funnel", summary).get(key, 0), "href": href}
         for key, label, icon, href in [
             ("applications", "简历", "file", "/candidates"),
             ("screened", "初筛", "checklist", "/evaluations"),
+            ("assessments", "测评", "checklist", "/exams"),
+            ("written", "笔试", "file", "/exams"),
             ("interviews", "面试", "calendar", "/interviews"),
             ("offers", "Offer", "audit", "/offers"),
             ("onboarded", "入职", "users", "/onboarding"),
-        ]]
+        ] if recruitment_type != "internship" or key not in {"assessments", "written"}]
     return {"workbench": {
         "today": today.isoformat(),
         "date_label": f"{today.month}月{today.day}日 · 周{'一二三四五六日'[today.weekday()]}",

@@ -1,16 +1,16 @@
 {% extends "public_base.html" %}
-{% block title %}欢迎你加入 Testin · TalentFlow{% endblock %}
+{% block title %}欢迎你加入 {{ offer.company_name }} · TalentFlow{% endblock %}
 {% block content %}
 <main id="main-content" class="public-content">
   <article class="public-document public-offer">
-    <header class="public-document-header"><h1>欢迎你加入 Testin！</h1><p>{{ offer.job_title }}<span class="public-separator" aria-hidden="true"> / </span>{{ offer.candidate_name }}</p></header>
+    <header class="public-document-header"><h1>欢迎你加入 {{ offer.company_name }}！</h1><p>{{ offer.job_title }}<span class="public-separator" aria-hidden="true"> / </span>{{ offer.candidate_name }}</p></header>
     <div class="public-document-body">
       <div class="public-offer-meta"><span>录用通知</span><span>编号 {{ offer.id }}</span></div>
       <div class="public-offer-copy">{{ offer.content }}</div>
       <dl class="public-offer-fields">
         <dt>报到时间</dt><dd>{{ offer.report_time or 'Offer 接受后由 HR 确认' }}</dd>
-        <dt>报到地址</dt><dd>{{ offer.report_location or 'Testin 办公区 1 层前台' }}</dd>
-        <dt>办公地址</dt><dd>{{ offer.office_location or 'Testin 项目办公室' }}</dd>
+        <dt>报到地址</dt><dd>{{ offer.report_location or '待 HR 确认' }}</dd>
+        <dt>办公地址</dt><dd>{{ offer.office_location or '待 HR 确认' }}</dd>
       </dl>
       {% if offer.status.value == 'sent' %}
       <section class="public-offer-response" aria-labelledby="offer-response-title">

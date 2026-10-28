@@ -22,6 +22,8 @@ STAGES = (
         "captured", "parsing", "needs_review", "parsed", "deduplicated",
         "evaluating", "evaluation_review", "on_hold",
     }),
+    ("assessment", "测评", "外部试卷发放与 HR 结论", {"assessment_pending"}),
+    ("written", "笔试", "外部试卷发放与 HR 结论", {"written_pending"}),
     ("interview", "面试", "排期、面试与反馈", {
         "interview_pending", "scheduling", "interview_confirmed", "interviewed",
         "feedback_pending", "next_round",
@@ -110,6 +112,10 @@ def build_workbench_context(
                     card["action"] = "复核证据"
                 if row.get("missing_information"):
                     card["facts"].append(("待确认", "；".join(row["missing_information"])))
+            elif stage_key in {"assessment", "written"}:
+                card["note"] = "发放外部试卷，由 HR 核实并记录结论。"
+                card["action"] = "办理考试"
+                card["action_href"] = f"/exams?application_id={row['id']}"
             elif stage_key == "interview":
                 card["tone"] = "info"
                 if row.get("interview_id"):
@@ -181,6 +187,8 @@ def build_workbench_context(
         for key, label, icon, href in [
             ("applications", "简历", "file", "/candidates"),
             ("screened", "初筛", "checklist", "/evaluations"),
+            ("assessments", "测评", "checklist", "/exams"),
+            ("written", "笔试", "file", "/exams"),
             ("interviews", "面试", "calendar", "/interviews"),
             ("offers", "Offer", "audit", "/offers"),
             ("onboarded", "入职", "users", "/onboarding"),

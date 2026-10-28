@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     Application,
+    ApplicationSource,
     ApplicationStatus,
+    CandidateSource,
     AuditLog,
     Evaluation,
     FollowUpStatus,
@@ -29,6 +31,7 @@ from app.schemas import (
     InterviewSlotCreate,
     JobCreate,
 )
+from app.services.auth import current_actor
 
 
 class InvalidStatusTransition(ValueError):
@@ -52,14 +55,14 @@ APPLICATION_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] =
     ),
     ApplicationStatus.EVALUATION_REVIEW: frozenset(
         {
-            ApplicationStatus.INTERVIEW_PENDING,
+            ApplicationStatus.ASSESSMENT_PENDING,
             ApplicationStatus.ON_HOLD,
             ApplicationStatus.REJECTED,
         }
     ),
     ApplicationStatus.ON_HOLD: frozenset(
         {
-            ApplicationStatus.INTERVIEW_PENDING,
+            ApplicationStatus.ASSESSMENT_PENDING,
             ApplicationStatus.EVALUATING,
             ApplicationStatus.REJECTED,
         }
@@ -67,6 +70,8 @@ APPLICATION_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] =
     ApplicationStatus.INTERVIEW_PENDING: frozenset(
         {ApplicationStatus.SCHEDULING}
     ),
+    ApplicationStatus.ASSESSMENT_PENDING: frozenset({ApplicationStatus.WRITTEN_PENDING, ApplicationStatus.REJECTED}),
+    ApplicationStatus.WRITTEN_PENDING: frozenset({ApplicationStatus.INTERVIEW_PENDING, ApplicationStatus.REJECTED}),
     ApplicationStatus.SCHEDULING: frozenset(
         {ApplicationStatus.INTERVIEW_CONFIRMED}
     ),
@@ -98,7 +103,8 @@ APPLICATION_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] =
     ApplicationStatus.OFFER_ACCEPTED: frozenset(
         {ApplicationStatus.ONBOARDING}
     ),
-    ApplicationStatus.ONBOARDING: frozenset({ApplicationStatus.JOINED}),
+    ApplicationStatus.ONBOARDING: frozenset({ApplicationStatus.JOINED, ApplicationStatus.ONBOARDING_WITHDRAWN}),
+    ApplicationStatus.ONBOARDING_WITHDRAWN: frozenset(),
     ApplicationStatus.REJECTED: frozenset(),
     ApplicationStatus.OFFER_DECLINED: frozenset(),
     ApplicationStatus.JOINED: frozenset(),
@@ -106,6 +112,9 @@ APPLICATION_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] =
 
 HUMAN_ACTION_TARGETS = frozenset(
     {
+        ApplicationStatus.ASSESSMENT_PENDING,
+        ApplicationStatus.WRITTEN_PENDING,
+        ApplicationStatus.ONBOARDING_WITHDRAWN,
         ApplicationStatus.INTERVIEW_PENDING,
         ApplicationStatus.ON_HOLD,
         ApplicationStatus.REJECTED,
@@ -118,6 +127,17 @@ HUMAN_ACTION_TARGETS = frozenset(
         ApplicationStatus.JOINED,
     }
 )
+
+
+def lock_record(session: Session, model, record_id: int):
+    """Demo SQLite 写事务锁；读取当前版本后再校验和变更。"""
+    session.flush()
+    session.execute(update(model).where(model.id == record_id).values(id=model.id))
+    record = session.get(model, record_id)
+    if record is None:
+        raise ValueError("记录不存在")
+    session.refresh(record)
+    return record
 
 
 def hash_jd_content(jd_raw: str) -> str:
@@ -198,6 +218,9 @@ def get_or_create_job_version(
     )
     session.add(job_version)
     session.flush()
+    session.execute(update(Evaluation).where(Evaluation.application_id.in_(
+        select(Application.id).where(Application.job_id == job.id)
+    )).values(is_stale=True))
     write_audit_log(
         session,
         actor=actor,
@@ -220,12 +243,18 @@ def create_application(
     actor: str = "system",
 ) -> tuple[Application, bool]:
     values = _to_dict(data)
+    # 同岗位的创建在写事务内串行化，旧库存在历史重复时也不再新增重复投递。
+    session.execute(update(Job).where(Job.id == values["job_id"]).values(id=Job.id))
     source_id = values.get("source_id")
     if source_id is not None:
-        existing = session.scalar(
-            select(Application).where(Application.source_id == source_id)
-        )
+        source = session.get(CandidateSource, source_id)
+        if not source or source.candidate_id != values["candidate_id"]:
+            raise ValueError("来源不属于指定候选人")
+        link = session.get(ApplicationSource, source_id)
+        existing = session.get(Application, link.application_id) if link else session.scalar(select(Application).where(Application.source_id == source_id))
         if existing:
+            if existing.candidate_id != values["candidate_id"] or existing.job_id != values["job_id"]:
+                raise ValueError("来源已经关联其他投递，不能跨岗位复用")
             return existing, False
 
     job_version = session.get(JobVersion, values["job_version_id"])
@@ -233,6 +262,18 @@ def create_application(
         raise ValueError("JD 版本不存在")
     if job_version.job_id != values["job_id"]:
         raise ValueError("JD 版本不属于指定岗位")
+
+    existing = session.scalar(select(Application).where(
+        Application.candidate_id == values["candidate_id"], Application.job_id == values["job_id"]
+    ).order_by(Application.id))
+    if existing:
+        if source_id and session.get(ApplicationSource, source_id) is None:
+            session.add(ApplicationSource(source_id=source_id, application_id=existing.id))
+            session.flush()
+            session.expire(existing, ["source_links"])
+            for evaluation in existing.evaluations:
+                evaluation.is_stale = True
+        return existing, False
 
     application = Application(
         candidate_id=values["candidate_id"],
@@ -246,6 +287,8 @@ def create_application(
     )
     session.add(application)
     session.flush()
+    if source_id:
+        session.add(ApplicationSource(source_id=source_id, application_id=application.id))
     write_audit_log(
         session,
         actor=actor,
@@ -278,9 +321,7 @@ def transition_application(
     is_human_action: bool = False,
     reason: str | None = None,
 ) -> Application:
-    application = session.get(Application, application_id)
-    if application is None:
-        raise LookupError("投递记录不存在")
+    application = lock_record(session, Application, application_id)
 
     target = ApplicationStatus(to_status)
     current = application.status
@@ -535,7 +576,7 @@ def write_audit_log(
     details: dict[str, Any] | None = None,
 ) -> AuditLog:
     log = AuditLog(
-        actor=actor,
+        actor=current_actor.get() or actor,
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,

@@ -2,7 +2,11 @@
 .agents
 .codex
 .env
+**/runtime.env
+**/*.runtime.env
 .pytest_cache
+.test-runs
+output
 __pycache__
 *.py[cod]
 data

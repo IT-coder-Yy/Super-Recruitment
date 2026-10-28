@@ -197,8 +197,8 @@
       }
 
       try {
-        const response = await fetch(form.action, {
-          method: form.method,
+        const response = await fetch(form.getAttribute("action"), {
+          method: form.getAttribute("method") || "POST",
           body: new FormData(form),
           headers: { Accept: "application/json", "X-CSRF-Token": csrfToken }
         });
@@ -210,7 +210,7 @@
           // Use the fallback message when the response has no JSON body.
         }
 
-        if (!response.ok || response.redirected && response.url.includes("/login")) {
+        if (!response.ok || data.ok === false || response.redirected && response.url.includes("/login")) {
           const detail = data.detail;
           const message = typeof detail === "string"
             ? detail

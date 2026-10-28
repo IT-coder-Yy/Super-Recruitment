@@ -61,7 +61,7 @@ const output = path.resolve(process.env.UI_SCREENSHOT_DIR || "output/ui-implemen
     await theme("light");
     results.push("首页无匹配/清除筛选/看板列表切换/紧凑日程通过");
 
-    const routes = ["/candidates", "/candidates/1", "/evaluations", "/interviews", "/offers", "/onboarding", "/follow-ups", "/import", "/dashboard", "/notifications", "/settings", "/audit", "/mock-platform"];
+    const routes = ["/candidates", "/candidates/1", "/evaluations", "/exams", "/interviews", "/offers", "/onboarding", "/follow-ups", "/import", "/dashboard", "/notifications", "/settings", "/audit", "/mock-platform"];
     for (const route of routes) {
       const response = await page.goto(base + route);
       assert.equal(response.status(), 200, route);

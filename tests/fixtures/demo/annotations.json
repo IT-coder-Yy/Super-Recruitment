@@ -1,0 +1,1143 @@
+{
+  "version": "demo-v1",
+  "synthetic": true,
+  "samples": [
+    {
+      "id": "r01",
+      "file": "r01.txt",
+      "expected_identity": {
+        "name": "林舟",
+        "phone": "13900000001",
+        "email": "synthetic-r01@example.test"
+      },
+      "manual_correction": {}
+    },
+    {
+      "id": "r02",
+      "file": "r02.txt",
+      "expected_identity": {
+        "name": "陈澄",
+        "phone": "13900000002",
+        "email": "synthetic-r02@example.test"
+      },
+      "manual_correction": {}
+    },
+    {
+      "id": "r03",
+      "file": "r03.txt",
+      "expected_identity": {
+        "name": "周禾",
+        "phone": "13900000003",
+        "email": "synthetic-r03@example.test"
+      },
+      "manual_correction": {}
+    },
+    {
+      "id": "r04",
+      "file": "r04.txt",
+      "expected_identity": {
+        "name": "许青",
+        "phone": "13900000004",
+        "email": "synthetic-r04@example.test"
+      },
+      "manual_correction": {}
+    },
+    {
+      "id": "r05",
+      "file": "r05.txt",
+      "expected_identity": {
+        "name": "沈夏",
+        "phone": "13900000005",
+        "email": "synthetic-r05@example.test"
+      },
+      "manual_correction": {}
+    },
+    {
+      "id": "r06",
+      "file": "r06.txt",
+      "expected_identity": {
+        "name": "顾言",
+        "phone": "13900000006",
+        "email": "synthetic-r06@example.test"
+      },
+      "manual_correction": {}
+    },
+    {
+      "id": "r07",
+      "file": "r07.txt",
+      "expected_identity": {
+        "name": "叶初",
+        "phone": "13900000007",
+        "email": "synthetic-r07@example.test"
+      },
+      "manual_correction": {}
+    },
+    {
+      "id": "r08",
+      "file": "r08.txt",
+      "expected_identity": {
+        "name": "何悠",
+        "phone": "13900000008",
+        "email": "synthetic-r08@example.test"
+      },
+      "manual_correction": {}
+    },
+    {
+      "id": "r09",
+      "file": "r09.docx",
+      "expected_identity": {
+        "name": "唐星",
+        "phone": "13900000009",
+        "email": "synthetic-r09@example.test"
+      },
+      "manual_correction": {
+        "email": "synthetic-r09@example.test"
+      }
+    },
+    {
+      "id": "r10",
+      "file": "r10.pdf",
+      "expected_identity": {
+        "name": "宋溪",
+        "phone": "13900000010",
+        "email": "synthetic-r10@example.test"
+      },
+      "manual_correction": {
+        "phone": "13900000010"
+      }
+    },
+    {
+      "id": "r11",
+      "file": "r11.txt",
+      "expected_identity": {
+        "name": "陆远",
+        "phone": "13900000011",
+        "email": "synthetic-r11@example.test"
+      },
+      "manual_correction": {
+        "name": "陆远"
+      }
+    },
+    {
+      "id": "r12",
+      "file": "r12.txt",
+      "expected_identity": {
+        "name": "江月",
+        "phone": "13900000012",
+        "email": "synthetic-r12@example.test"
+      },
+      "manual_correction": {}
+    }
+  ],
+  "jobs": [
+    {
+      "id": "backend",
+      "title": "虚构后端实习生",
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ]
+    },
+    {
+      "id": "frontend",
+      "title": "虚构前端实习生",
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ]
+    }
+  ],
+  "annotations": [
+    {
+      "sample_id": "r01",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "林舟",
+        "phone": "13900000001",
+        "email": "synthetic-r01@example.test"
+      },
+      "facts": [
+        "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。",
+        "实习：虚构甲公司后端开发三个月。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r01.txt",
+          "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        80,
+        95
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r01",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "林舟",
+        "phone": "13900000001",
+        "email": "synthetic-r01@example.test"
+      },
+      "facts": [
+        "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。",
+        "实习：虚构甲公司后端开发三个月。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r01.txt",
+          "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        15,
+        40
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r02",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "陈澄",
+        "phone": "13900000002",
+        "email": "synthetic-r02@example.test"
+      },
+      "facts": [
+        "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。",
+        "实习：虚构乙公司前端开发三个月。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r02.txt",
+          "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        15,
+        40
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r02",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "陈澄",
+        "phone": "13900000002",
+        "email": "synthetic-r02@example.test"
+      },
+      "facts": [
+        "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。",
+        "实习：虚构乙公司前端开发三个月。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r02.txt",
+          "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        80,
+        95
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r03",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "周禾",
+        "phone": "13900000003",
+        "email": "synthetic-r03@example.test"
+      },
+      "facts": [
+        "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。",
+        "经历：课程项目，无企业实习。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r03.txt",
+          "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        60,
+        80
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r03",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "周禾",
+        "phone": "13900000003",
+        "email": "synthetic-r03@example.test"
+      },
+      "facts": [
+        "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。",
+        "经历：课程项目，无企业实习。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r03.txt",
+          "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        60,
+        80
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r04",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "许青",
+        "phone": "13900000004",
+        "email": "synthetic-r04@example.test"
+      },
+      "facts": [
+        "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。",
+        "经历：校内数据分析课程。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r04.txt",
+          "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        30,
+        55
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r04",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "许青",
+        "phone": "13900000004",
+        "email": "synthetic-r04@example.test"
+      },
+      "facts": [
+        "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。",
+        "经历：校内数据分析课程。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r04.txt",
+          "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        5,
+        25
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r05",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "沈夏",
+        "phone": "13900000005",
+        "email": "synthetic-r05@example.test"
+      },
+      "facts": [
+        "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。",
+        "经历：个人练习，无企业实习。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r05.txt",
+          "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        5,
+        25
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r05",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "沈夏",
+        "phone": "13900000005",
+        "email": "synthetic-r05@example.test"
+      },
+      "facts": [
+        "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。",
+        "经历：个人练习，无企业实习。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r05.txt",
+          "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        45,
+        70
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r06",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "顾言",
+        "phone": "13900000006",
+        "email": "synthetic-r06@example.test"
+      },
+      "facts": [
+        "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。",
+        "实习：虚构丙公司 Java 后端两个月。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r06.txt",
+          "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        40,
+        65
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r06",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "顾言",
+        "phone": "13900000006",
+        "email": "synthetic-r06@example.test"
+      },
+      "facts": [
+        "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。",
+        "实习：虚构丙公司 Java 后端两个月。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r06.txt",
+          "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        5,
+        30
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r07",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "叶初",
+        "phone": "13900000007",
+        "email": "synthetic-r07@example.test"
+      },
+      "facts": [
+        "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。",
+        "经历：实验室课程项目。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r07.txt",
+          "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        20,
+        45
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r07",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "叶初",
+        "phone": "13900000007",
+        "email": "synthetic-r07@example.test"
+      },
+      "facts": [
+        "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。",
+        "经历：实验室课程项目。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r07.txt",
+          "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        5,
+        25
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r08",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "何悠",
+        "phone": "13900000008",
+        "email": "synthetic-r08@example.test"
+      },
+      "facts": [
+        "项目：制作活动海报与界面设计稿，没有软件开发经历。",
+        "经历：设计社团。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r08.txt",
+          "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        0,
+        20
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r08",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "何悠",
+        "phone": "13900000008",
+        "email": "synthetic-r08@example.test"
+      },
+      "facts": [
+        "项目：制作活动海报与界面设计稿，没有软件开发经历。",
+        "经历：设计社团。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r08.txt",
+          "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        10,
+        35
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r09",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "唐星",
+        "phone": "13900000009",
+        "email": "synthetic-r09@example.test"
+      },
+      "facts": [
+        "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。",
+        "经历：个人项目，未说明可实习时间。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r09.docx",
+          "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {
+        "email": "synthetic-r09@example.test"
+      },
+      "suggested_score_range": [
+        65,
+        85
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r09",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "唐星",
+        "phone": "13900000009",
+        "email": "synthetic-r09@example.test"
+      },
+      "facts": [
+        "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。",
+        "经历：个人项目，未说明可实习时间。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r09.docx",
+          "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {
+        "email": "synthetic-r09@example.test"
+      },
+      "suggested_score_range": [
+        10,
+        30
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r10",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "宋溪",
+        "phone": "13900000010",
+        "email": "synthetic-r10@example.test"
+      },
+      "facts": [
+        "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。",
+        "经历：校园项目，无企业实习。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r10.pdf",
+          "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {
+        "phone": "13900000010"
+      },
+      "suggested_score_range": [
+        10,
+        30
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r10",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "宋溪",
+        "phone": "13900000010",
+        "email": "synthetic-r10@example.test"
+      },
+      "facts": [
+        "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。",
+        "经历：校园项目，无企业实习。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r10.pdf",
+          "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {
+        "phone": "13900000010"
+      },
+      "suggested_score_range": [
+        60,
+        80
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r11",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "陆远",
+        "phone": "13900000011",
+        "email": "synthetic-r11@example.test"
+      },
+      "facts": [
+        "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。",
+        "经历：团队课程项目，无测试证据。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r11.txt",
+          "quote": "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {
+        "name": "陆远"
+      },
+      "suggested_score_range": [
+        40,
+        65
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r11",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "陆远",
+        "phone": "13900000011",
+        "email": "synthetic-r11@example.test"
+      },
+      "facts": [
+        "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。",
+        "经历：团队课程项目，无测试证据。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r11.txt",
+          "quote": "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {
+        "name": "陆远"
+      },
+      "suggested_score_range": [
+        10,
+        30
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r12",
+      "job_id": "backend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "江月",
+        "phone": "13900000012",
+        "email": "synthetic-r12@example.test"
+      },
+      "facts": [
+        "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。",
+        "实习：虚构丁公司前端两个月。"
+      ],
+      "requirements": [
+        "Python 与 FastAPI 接口开发",
+        "SQL 与事务",
+        "接口测试和异常边界",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r12.txt",
+          "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        10,
+        35
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    },
+    {
+      "sample_id": "r12",
+      "job_id": "frontend",
+      "review_status": "pending_human_review",
+      "reviewer": null,
+      "reviewed_at": null,
+      "identity": {
+        "name": "江月",
+        "phone": "13900000012",
+        "email": "synthetic-r12@example.test"
+      },
+      "facts": [
+        "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。",
+        "实习：虚构丁公司前端两个月。"
+      ],
+      "requirements": [
+        "TypeScript 与 React",
+        "CSS 与移动端适配",
+        "键盘无障碍和浏览器测试",
+        "说明本人负责的实现",
+        "每周至少四天实习"
+      ],
+      "evidence": [
+        {
+          "file": "r12.txt",
+          "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。",
+          "limit": "仅支持本人明确说明的项目；技能列表不能证明熟练度"
+        }
+      ],
+      "missing_information": [
+        "缺少聊天核实的到岗意向",
+        "未提及的岗位要求需 HR 核对"
+      ],
+      "manual_fact": {},
+      "suggested_score_range": [
+        75,
+        95
+      ],
+      "score_range_status": "草案，不能用于宣称质量达标"
+    }
+  ],
+  "ranking_draft": [
+    {
+      "job_id": "backend",
+      "higher": "r01",
+      "lower": "r08"
+    },
+    {
+      "job_id": "frontend",
+      "higher": "r02",
+      "lower": "r04"
+    }
+  ],
+  "quality_status": "pending_human_review"
+}

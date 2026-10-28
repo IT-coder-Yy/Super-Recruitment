@@ -7,7 +7,7 @@
 {% block topbar_actions %}<a class="button" href="/import"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#upload"/></svg>导入简历</a>{% endblock %}
 {% block content %}
 <section class="wb-flow" aria-labelledby="flow-title">
-  <div class="wb-flow-heading"><h2 id="flow-title">招聘流程</h2><span title="全部投递按当前招聘状态汇总，不代表本月新增或历史转化率">全部投递 · 当前状态</span></div>
+  <div class="wb-flow-heading"><h2 id="flow-title">招聘流程</h2><span title="按当前记录与审计中的曾到达阶段统计；历史缺失记录不推测补齐">全部投递 · 曾到达阶段</span></div>
   <ol class="wb-flow-steps">
     {% for step in workbench.flow %}
     <li><a href="{{ step.href }}" aria-label="{{ step.label }} {{ step.count }}，查看详情"><span class="wb-flow-icon"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#{{ step.icon }}"/></svg></span><span class="wb-flow-copy"><span>{{ step.label }}</span><strong>{{ step.count }}</strong></span></a>{% if not loop.last %}<svg class="icon wb-flow-arrow" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg>{% endif %}</li>

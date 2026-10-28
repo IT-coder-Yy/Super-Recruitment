@@ -22,6 +22,7 @@
       </header>
       <div class="surface-body">
         <form id="resumeUploadForm" class="stack-sm" enctype="multipart/form-data">
+          <label class="field">选择已有岗位（重复投递请选同一岗位）<select class="select" name="job_id"><option value="">新建岗位</option>{% for job in jobs %}<option value="{{ job.id }}">#{{ job.id }} {{ job.title }}</option>{% endfor %}</select></label>
           <div class="form-grid">
             <div class="field">
               <label for="jobTitle">来源岗位</label>
@@ -41,7 +42,7 @@
             <div>
               <span class="upload-icon"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#upload"/></svg></span>
               <h3>选择或拖放简历文件</h3>
-              <p>上传只创建导入任务，不会直接写入候选人库。点击“开始解析”后才进入文本提取和字段识别。</p>
+              <p>每份文件对应一人、一个独立任务；单份失败不影响其他简历。上传后请解析并补齐姓名、手机和邮箱。</p>
             </div>
           </div>
           <div class="file-list" id="fileList" aria-live="polite"></div>
@@ -151,6 +152,7 @@
 document.addEventListener("DOMContentLoaded", () => {
   const uploadForm = document.getElementById("resumeUploadForm");
   const preview = document.getElementById("importPreview");
+  let activeTask;
   const escapeHtml = (value) => String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -170,6 +172,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const renderPreview = (task) => {
+    activeTask = task;
     const stepIndex = task.status === "confirmed" ? 3 : task.status === "needs_review" ? 2 : 1;
     document.querySelectorAll('.stepper .step').forEach((step, index) => {
       step.classList.toggle('is-complete', index < stepIndex);
@@ -222,6 +225,12 @@ document.addEventListener("DOMContentLoaded", () => {
         ${missing.length ? `<div class="notice notice-warning"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>缺失字段：${missing.map(escapeHtml).join("；")}</div>` : ""}
         ${warnings.length ? `<div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>${warnings.map(escapeHtml).join("；")}</div>` : ""}
       </section>
+      ${task.status === "needs_review" ? `<form id="previewEdit" class="stack-sm">
+        ${['name','phone','email'].map((key,i)=>`<label class="field">${['姓名','手机','邮箱'][i]}<input class="input" name="${key}" value="${escapeHtml(task.preview?.candidate?.[key] || '')}" required></label>`).join('')}
+        <label class="field">技能<textarea class="textarea" name="skills">${escapeHtml((task.preview?.candidate?.skills||[]).join('；'))}</textarea></label>
+        <label class="field">项目经历<textarea class="textarea" name="experience">${escapeHtml((task.preview?.candidate?.project_experience||[]).map(x=>x.description||x.evidence||x.name||'').join('\n'))}</textarea></label>
+        <button class="button" type="button" data-import-action="supplement" data-task-id="${task.id}">保存补充资料</button>
+      </form>` : ''}
       <section class="button-row">
         ${task.status === "needs_review" ? `
           <button class="button button-primary" type="button" data-import-action="confirm" data-task-id="${task.id}">确认入库</button>
@@ -248,6 +257,7 @@ document.addEventListener("DOMContentLoaded", () => {
   uploadForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(uploadForm);
+    if (!formData.get('job_id')) formData.delete('job_id');
     if (!formData.getAll("files").some((file) => file && file.size > 0)) {
       window.AdminUI?.showToast("请选择文件", "支持 txt、md、pdf、docx。", "error");
       return;
@@ -258,7 +268,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
       const response = await fetch("/api/import/files", { method: "POST", body: formData, headers: { Accept: "application/json", "X-CSRF-Token": csrfToken } });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "上传失败");
+      if (!response.ok) throw new Error(data.errors?.map(x=>`${x.filename}: ${x.error}`).join('；') || data.detail || "上传失败");
+      if (data.errors?.length) sessionStorage.setItem('importErrors', data.errors.map(x=>`${x.filename}: ${x.error}`).join('；'));
       window.AdminUI?.showToast("导入任务已创建", data.message, "success");
       renderPreview(data.task);
       window.location.href = `/import?task_id=${encodeURIComponent(data.task.id)}`;
@@ -287,8 +298,16 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!response.ok) throw new Error(data.detail || "解析失败");
         window.AdminUI?.showToast(data.ok ? "解析完成" : "解析失败", data.message, data.ok ? "success" : "error");
         renderPreview(data.task);
+      } else if (action === "supplement") {
+        const body = new FormData(document.getElementById('previewEdit'));
+        body.set('version', activeTask.preview.revision);
+        const response = await fetch(`/api/import/tasks/${taskId}/supplement`, {method:'POST',body,headers:{'X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content}});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '补充失败');
+        renderPreview(data.task);
       } else if (action === "confirm" || action === "confirm-evaluate") {
         const body = new FormData();
+        body.set('version', activeTask.preview.revision);
         body.set("start_evaluation", action === "confirm-evaluate" ? "true" : "false");
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
         const response = await fetch(`/api/import/tasks/${taskId}/confirm`, { method: "POST", body, headers: { Accept: "application/json", "X-CSRF-Token": csrfToken } });
@@ -314,6 +333,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("refreshImportTasks")?.addEventListener("click", () => window.location.reload());
   const initialTaskId = new URLSearchParams(window.location.search).get('task_id');
+  const batchErrors = sessionStorage.getItem('importErrors');
+  if (batchErrors) { window.AdminUI?.showToast('部分文件未上传', batchErrors, 'error'); sessionStorage.removeItem('importErrors'); }
   if (initialTaskId && /^\d+$/.test(initialTaskId)) {
     fetchTask(initialTaskId).catch((error) => window.AdminUI?.showToast('读取任务失败', error.message, 'error'));
   }

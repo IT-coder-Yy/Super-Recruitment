@@ -38,6 +38,7 @@
         <p class="nav-label">招聘</p>
         {{ nav_item('candidates', '/candidates', 'users', '候选人') }}
         {{ nav_item('evaluations', '/evaluations', 'file', '评估复核', pending_evaluations|default(0)) }}
+        {{ nav_item('exams', '/exams', 'checklist', '测评与笔试') }}
         {{ nav_item('interviews', '/interviews', 'calendar', '面试排期') }}
         {{ nav_item('offers', '/offers', 'audit', 'Offer') }}
         {{ nav_item('onboarding', '/onboarding', 'checklist', '入职跟进') }}

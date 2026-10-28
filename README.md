@@ -22,6 +22,14 @@
 
 ## Windows 快速启动
 
+### 界面与主题
+
+- 首页按招聘阶段整理投递，支持岗位与关键词组合筛选、看板/列表切换。
+- 今日面试按北京时间展示最多三条，旁边可查看全部；下方提供待办与快捷入口。
+- 右上角主题按钮可选浅色、深色或跟随系统，偏好保存在当前浏览器，登录和候选人公开页同步生效。
+- 候选人多岗位投递可单独切换；评估、面试与 Offer 仍需人工确认。
+- 小屏通过左上角打开导航，较宽表格和阶段看板可在各自区域滚动。
+
 首次运行：
 
 ```powershell
@@ -80,6 +88,14 @@ conda run -n testin python -m app.seed
 python -m compileall app tests scripts
 python -m pytest -q
 ```
+
+主题行为测试使用 Node 内置测试运行器，无需额外依赖：
+
+```powershell
+node --test tests/theme.test.cjs
+```
+
+可选浏览器验收脚本为 `scripts/ui_smoke.cjs`，需要本机 Playwright 和 Edge；通过 `PLAYWRIGHT_MODULE` 指定 Playwright 模块路径，`TALENTFLOW_URL` 指向隔离数据库启动的服务（默认 `http://127.0.0.1:8001`），截图输出到 `output/ui-implementation`。脚本使用种子演示账号，只读取业务页面、验证视图和主题；不会发送面试邮件或提交招聘决定。API 回归测试使用内存数据库与临时配置，不覆盖本地 `.env`。
 
 启动服务后可运行端到端冒烟测试：
 

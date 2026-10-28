@@ -5,21 +5,11 @@ $env:PYTHONIOENCODING = "utf-8"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
 
-Write-Host "Running syntax check..."
-if (Get-Command conda -ErrorAction SilentlyContinue) {
-    conda run -n testin python -m compileall app tests scripts
-    if ($LASTEXITCODE -ne 0) { throw "Syntax check failed." }
-
-    Write-Host "Running pytest in conda env: testin..."
-    conda run -n testin python -m pytest -q
-    if ($LASTEXITCODE -ne 0) { throw "Tests failed." }
+if ($env:TALENTFLOW_PYTHON) {
+    & $env:TALENTFLOW_PYTHON -B scripts/run_tests.py @args
+} elseif (Get-Command conda -ErrorAction SilentlyContinue) {
+    conda run -n testin python -B scripts/run_tests.py @args
 } else {
-    Write-Host "Conda not found; falling back to current Python."
-    python -m compileall app tests scripts
-    if ($LASTEXITCODE -ne 0) { throw "Syntax check failed." }
-
-    python -m pytest -q
-    if ($LASTEXITCODE -ne 0) { throw "Tests failed." }
+    python -B scripts/run_tests.py @args
 }
-
-Write-Host "All checks passed."
+exit $LASTEXITCODE

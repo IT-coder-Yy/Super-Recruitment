@@ -4,7 +4,7 @@
   if (!root) return;
   const indicator = document.querySelector("[data-live-status]");
   const updatedAt = document.querySelector("[data-updated-at]");
-  const stages = [["applications", "投递"], ["screened", "初筛"], ["interviews", "面试"], ["offers", "Offer"], ["onboarded", "入职"]];
+  const stages = [["applications", "投递"], ["screened", "初筛"], ["assessments", "测评"], ["written", "笔试"], ["interviews", "面试"], ["offers", "Offer"], ["onboarded", "入职"]];
   let refreshing = false;
   function textElement(tag, value, className) {
     const el = document.createElement(tag);
@@ -13,6 +13,9 @@
     return el;
   }
   function render(data) {
+    document.querySelectorAll('[data-exam-kind]').forEach(el => {
+      el.textContent = data.exam_counts[el.dataset.examKind][el.dataset.examResult];
+    });
     document.querySelectorAll("[data-metric]").forEach(el => {
       const value = data[el.dataset.metric];
       if (typeof value === "number") el.textContent = value.toLocaleString("zh-CN");

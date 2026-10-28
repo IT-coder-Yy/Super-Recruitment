@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_DATABASE_URL = f"sqlite:///{(ROOT_DIR / 'data' / 'recruitment.db').as_posix()}"
+DEFAULT_DATABASE_URL = f"sqlite:///{(Path(os.getenv('APP_DATA_DIR', str(ROOT_DIR / 'data'))) / 'recruitment.db').as_posix()}"
 DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 
@@ -73,11 +73,17 @@ def session_scope(
 
 def init_db(bind: Engine | None = None) -> None:
     from app import models  # noqa: F401
+    from app.migrations import prepare_upgrade, finish_upgrade
 
     target = bind or engine
     if str(target.url).startswith("sqlite:///"):
         database_path = target.url.database
         if database_path and database_path != ":memory:":
             Path(database_path).parent.mkdir(parents=True, exist_ok=True)
+    prepare_upgrade(target)
     Base.metadata.create_all(target)
+    conflicts = finish_upgrade(target)
+    if conflicts:
+        import warnings
+        warnings.warn(f"历史重复投递保留，未添加全局唯一索引：{conflicts}", stacklevel=2)
 

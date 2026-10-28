@@ -143,6 +143,8 @@ class EvaluationDimension(BaseModel):
     weight: float = Field(gt=0, le=1)
     jd_requirement: str | None = None
     resume_evidence: str | None = None
+    references: list[dict[str, str]] = Field(default_factory=list)
+    missing_or_conflicting: list[str] = Field(default_factory=list)
     confidence: float | None = Field(default=None, ge=0, le=1)
 
 

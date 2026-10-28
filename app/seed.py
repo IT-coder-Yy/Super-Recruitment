@@ -171,7 +171,7 @@ def seed_database(session: Session) -> dict[str, int]:
         session,
         candidate_data=CandidateCreate(
             name="顾青禾",
-            phone=None,
+            phone="13800130003",
             email="qinghe.gu@example.test",
             structured_data={"education": "虚构学院计算机专业"},
         ),
@@ -397,9 +397,10 @@ def seed_database(session: Session) -> dict[str, int]:
             ApplicationStatus.DEDUPLICATED,
             ApplicationStatus.EVALUATING,
             ApplicationStatus.EVALUATION_REVIEW,
+            ApplicationStatus.ASSESSMENT_PENDING,
+            ApplicationStatus.WRITTEN_PENDING,
             ApplicationStatus.INTERVIEW_PENDING,
             ApplicationStatus.SCHEDULING,
-            ApplicationStatus.INTERVIEW_CONFIRMED,
         ],
     )
     _advance(
@@ -427,6 +428,8 @@ def seed_database(session: Session) -> dict[str, int]:
             ApplicationStatus.DEDUPLICATED,
             ApplicationStatus.EVALUATING,
             ApplicationStatus.EVALUATION_REVIEW,
+            ApplicationStatus.ASSESSMENT_PENDING,
+            ApplicationStatus.WRITTEN_PENDING,
             ApplicationStatus.INTERVIEW_PENDING,
         ],
     )
@@ -564,8 +567,8 @@ def seed_database(session: Session) -> dict[str, int]:
                     "email": "interviewer.chen@example.test",
                 }
             ],
-            booking_token="seed-demo-booking-token-not-for-production",
-            booking_token_expires_at=now + timedelta(days=2),
+            booking_token=None,
+            booking_token_expires_at=None,
         ),
         actor=SEED_ACTOR,
     )
@@ -592,8 +595,8 @@ def seed_database(session: Session) -> dict[str, int]:
             window_key="seed-open-window",
             owner="虚构HR-林老师",
             due_at=now + timedelta(hours=2),
-            reason="候选人手机号缺失，无法自动查重。",
-            suggested_action="联系候选人补充手机号并人工确认身份。",
+            reason="虚构演示记录的资料待人工核对。",
+            suggested_action="核对候选人资料并记录处理结果。",
             reminder_draft="请处理待人工查重的虚构候选人记录。",
             next_check_at=now + timedelta(hours=4),
         ),

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}测评与笔试{% endblock %}
+{% block page_title %}测评与笔试{% endblock %}
+{% block page_subtitle %}登记公司外部试卷链接，向对应投递发送邮件，由 HR 记录结论{% endblock %}
+{% block content %}
+<div class="stack">
+<section class="work-surface"><header class="surface-header"><h2>试卷资源</h2></header><div class="surface-body">
+<form method="post" action="/api/exams/resources" enctype="multipart/form-data" class="form-grid">
+  <input type="hidden" name="request_key" value="{{ resource_request_key }}">
+  <label class="field">适用岗位<select class="select" name="job_id" required>{% for job in jobs %}<option value="{{ job.id }}">#{{ job.id }} {{ job.title }}</option>{% endfor %}</select></label>
+  <label class="field">类型<select class="select" name="kind"><option value="assessment">测评</option><option value="written">笔试</option></select></label>
+  <label class="field">标题<input class="input" name="title" required maxlength="200"></label>
+  <label class="field">外部试卷链接<input class="input" name="url" type="url" required></label>
+  <label class="field">内部留存文件（可选，PDF / DOCX，最大 10 MiB）<input class="input" name="file" type="file" accept=".pdf,.docx"></label>
+  <button class="button button-primary" type="submit">登记资源</button>
+</form>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>岗位 / 类型 / 标题</th><th>链接</th><th>状态</th><th>操作</th></tr></thead><tbody>
+{% for r in resources %}<tr><td>岗位 #{{ r.job_id or "历史未指定" }} · {{ kinds[r.kind][0] }} · {{ r.title }}</td><td><a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">外部试卷</a></td><td>{{ '可发放' if r.active else '已停用' }}</td><td><div class="button-row">
+{% if r.filename %}<a class="button button-sm" href="/api/exams/resources/{{ r.id }}/file">内部文件</a>{% endif %}
+{% if r.active %}<form method="post" action="/api/exams/resources/{{ r.id }}/delete"><button class="button button-sm" type="submit">删除 / 已使用则停用</button></form>{% endif %}
+</div></td></tr>{% else %}<tr><td colspan="4">暂无资源，请登记公司已有试卷链接。</td></tr>{% endfor %}
+</tbody></table></div></div></section>
+<section class="work-surface"><header class="surface-header"><h2>预览与发放</h2></header><div class="surface-body stack-sm">
+<form method="get" action="/exams" class="form-grid">
+<label class="field">对应投递<select class="select" name="application_id" required>{% for a in applications %}<option value="{{ a.id }}" {% if selected_application and selected_application.id == a.id %}selected{% endif %}>#{{ a.id }} {{ a.candidate.name }} · {{ a.job.title }} · {{ status_labels[a.status.value] }}</option>{% endfor %}</select></label>
+<label class="field">试卷<select class="select" name="resource_id" required>{% for r in resources if r.active %}<option value="{{ r.id }}">岗位 #{{ r.job_id or "历史未指定" }} · {{ kinds[r.kind][0] }} · {{ r.title }}</option>{% endfor %}</select></label>
+<button class="button" type="submit">预览邮件</button></form>
+{% if preview_error %}<p class="notice notice-warning">{{ preview_error }}</p>{% endif %}
+{% if preview %}<p>收件人：{{ preview.recipient }}　主题：{{ preview.subject }}</p><pre>{{ preview.content }}</pre>
+<p class="muted">只发送外部链接，内部文件不会随邮件发送。发放不代表考试完成。</p>
+<form method="post" action="/api/applications/{{ selected_application.id }}/exams/send"><input type="hidden" name="resource_id" value="{{ preview.resource_id }}"><input type="hidden" name="candidate_revision" value="{{ preview.candidate_revision }}"><button class="button button-primary" type="submit">确认发放 / 失败重试</button></form>{% endif %}
+{% if selected_application and selected_application.status.value in ['assessment_pending','written_pending'] %}
+<form method="post" action="/api/applications/{{ selected_application.id }}/exams/decision" class="form-grid">
+<input type="hidden" name="version" value="{{ (selected_application.extra_data or {}).get('workflow_revision',0) }}"><input type="hidden" name="kind" value="{{ 'assessment' if selected_application.status.value == 'assessment_pending' else 'written' }}">
+<label class="field">HR 结论<select class="select" name="result"><option value="passed">通过</option><option value="failed">不通过</option><option value="skipped">跳过</option></select></label>
+<label class="field">核实说明（必填）<textarea class="textarea" name="note" required></textarea></label><button class="button" type="submit">保存结论并推进</button></form>{% endif %}
+</div></section>
+<section class="work-surface"><header class="surface-header"><h2>发放历史</h2></header><div class="surface-body">
+{% for d in dispatches %}<details class="technical-details"><summary>{{ d.record.application.candidate.name }} · {{ d.record.application.job.title }} · {{ kinds[d.record.kind][0] }} · {{ d.record.snapshot.title }} · {{ d.notification.status.value if d.notification else '未发送' }}</summary><p>{{ d.record.snapshot.recipient }}</p><pre>{{ d.record.snapshot.content }}</pre><a href="/notifications">查看发送尝试与核实结果</a></details>{% else %}<p>暂无发放记录</p>{% endfor %}
+</div></section></div>
+{% endblock %}

@@ -1,0 +1,9 @@
+姓名：陈澄
+手机号：13900000002
+邮箱：synthetic-r02@example.test
+教育：虚构大学计算机本科在读
+技能：TypeScript、React、CSS、Playwright
+项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。
+实习：虚构乙公司前端开发三个月。
+意向：每周可实习四天
+声明：所有个人与公司信息为虚构测试数据，禁止真实联系。

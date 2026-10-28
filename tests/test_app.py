@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import pytest
@@ -287,7 +288,7 @@ def test_local_resume_upload_parse_preview_and_confirm(
 def test_candidate_supplement_and_delete(
     authenticated_client: TestClient,
 ) -> None:
-    resume = "姓名：补充候选人\n手机号：13800138991\n项目：后端 API".encode("utf-8")
+    resume = "姓名：补充候选人\n手机号：13800138991\n邮箱：supplement@example.test\n项目：后端 API".encode("utf-8")
     upload = authenticated_client.post(
         "/api/import/files",
         headers=_csrf_headers(authenticated_client),
@@ -349,7 +350,7 @@ def test_local_resume_confirm_can_start_evaluation(
         files={
             "files": (
                 "resume.md",
-                "姓名：评估候选人\n手机号：13800138188\n项目：Python FastAPI RAG 招聘助手".encode(
+                "姓名：评估候选人\n手机号：13800138188\n邮箱：evaluation@example.test\n项目：Python FastAPI RAG 招聘助手".encode(
                     "utf-8"
                 ),
                 "text/markdown",
@@ -406,6 +407,7 @@ def test_all_management_pages_render(
         "/import",
         "/mock-platform",
         "/evaluations",
+        "/exams",
         "/interviews",
         "/offers",
         "/onboarding",
@@ -458,9 +460,26 @@ def test_offer_and_onboarding_full_loop(
     decision = authenticated_client.post(
         f"/api/applications/{application_id}/decision",
         headers=_csrf_headers(authenticated_client),
-        data={"status": "interview_pending", "reason": "测试流程进入面试"},
+        data={"status": "assessment_pending", "reason": "测试流程进入测评"},
     )
     assert decision.status_code == 200
+
+    with app_db.SessionLocal() as session:
+        from app.models import Application
+        job_id = session.get(Application, application_id).job_id
+    for version, kind in enumerate(["assessment", "written"]):
+        created = authenticated_client.post("/api/exams/resources", headers=_csrf_headers(authenticated_client),
+            data={"job_id": job_id, "kind": kind, "title": "虚构试卷", "url": "https://exam.example.test/paper"})
+        assert created.status_code == 200, created.text
+        resource_id = created.json()["resource_id"]
+        revision = authenticated_client.get(f"/api/candidates/{confirmed.json()['candidate_id']}").json()["structured_data"]["revision"]
+        sent_exam = authenticated_client.post(f"/api/applications/{application_id}/exams/send", headers=_csrf_headers(authenticated_client),
+            data={"resource_id": resource_id, "candidate_revision": revision})
+        assert sent_exam.json()["status"] == "mocked", sent_exam.text
+        assert _application_row(authenticated_client, application_id)["status"] == ("assessment_pending" if version == 0 else "written_pending")
+        concluded = authenticated_client.post(f"/api/applications/{application_id}/exams/decision", headers=_csrf_headers(authenticated_client),
+            data={"kind": kind, "result": "passed", "note": "HR 核实虚构结果通过", "version": version})
+        assert concluded.status_code == 200, concluded.text
 
     scheduled = authenticated_client.post(
         f"/api/applications/{application_id}/schedule",
@@ -510,9 +529,17 @@ def test_offer_and_onboarding_full_loop(
     assert draft.status_code == 200
     assert "待 HR 填写" in draft.json()["message"]
 
+    now = datetime.now(timezone.utc)
+    saved = authenticated_client.post(f"/api/offers/{offer['id']}/terms", headers=_csrf_headers(authenticated_client), data={
+        "version": 0, "company_name": "Testin", "job_title": "后端开发实习生", "salary": "虚构：300 元/天", "subsidy": "无",
+        "office_location": "虚构办公区", "report_location": "虚构前台", "report_time": (now + timedelta(days=7)).date().isoformat(),
+        "expires_at": (now + timedelta(days=3)).isoformat()})
+    assert saved.status_code == 200, saved.text
+
     approved = authenticated_client.post(
         f"/api/offers/{offer['id']}/approve",
         headers=_csrf_headers(authenticated_client),
+        data={"version": 1},
     )
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
@@ -555,6 +582,15 @@ def test_offer_and_onboarding_full_loop(
         assert done.status_code == 200
         assert done.json()["status"] == "done"
 
+    row = _application_row(authenticated_client, application_id)
+    assert row["status"] == "onboarding"
+    for action, version, values in [
+        ("update", 0, {"expected_date": now.date().isoformat(), "location": "虚构前台"}),
+        ("join", 1, {"actual_date": now.date().isoformat(), "note": "HR 核实本人实际到岗"}),
+    ]:
+        result = authenticated_client.post(f"/api/applications/{application_id}/onboarding", headers=_csrf_headers(authenticated_client),
+            data={"action": action, "version": version, **values})
+        assert result.status_code == 200, result.text
     row = _application_row(authenticated_client, application_id)
     assert row["status"] == "joined"
 

@@ -56,10 +56,10 @@ result = pytest.main([
 ])
 node = shutil.which("node")
 if node:
-    theme = subprocess.run([node, "--test", "tests/theme.test.cjs"], cwd=ROOT)
+    theme = subprocess.run([node, "--test", "tests/theme.test.cjs", "tests/admin-navigation.test.cjs"], cwd=ROOT)
     result = result or theme.returncode
 else:
-    print("Node.js unavailable: theme tests not executed", file=sys.stderr)
+    print("Node.js unavailable: frontend tests not executed", file=sys.stderr)
     result = result or 1
 print(f"Evidence: {test_root}")
 after = protected_digests()

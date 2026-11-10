@@ -231,7 +231,13 @@
         );
         window.setTimeout(() => {
           if (data.redirect) {
-            window.location.href = data.redirect;
+            const target = new URL(data.redirect, window.location.href);
+            if (target.origin === window.location.origin && target.pathname === window.location.pathname && target.search === window.location.search) {
+              window.location.hash = target.hash;
+              window.location.reload();
+            } else {
+              window.location.href = target.href;
+            }
           } else {
             window.location.reload();
           }

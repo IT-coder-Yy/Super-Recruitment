@@ -142,7 +142,10 @@ class ApplicationTransition(BaseModel):
 class EvaluationDimension(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     score: float = Field(ge=0, le=100)
-    weight: float = Field(gt=0, le=1)
+    weight: float = Field(ge=0, le=1)
+    applicable: bool = True
+    criteria: list[dict[str, Any]] = Field(default_factory=list)
+    eligibility: dict[str, Any] = Field(default_factory=dict)
     jd_requirement: str | None = None
     resume_evidence: str | None = None
     references: list[dict[str, str]] = Field(default_factory=list)

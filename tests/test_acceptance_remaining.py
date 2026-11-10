@@ -208,6 +208,8 @@ def test_online_fault_matrix_retains_old_evaluation_and_retries(env, monkeypatch
     payload = _mock_evaluation(snapshot)
     for dimension in payload['dimensions']:
         dimension.update(score=0, references=[])
+        for criterion in dimension['criteria']:
+            criterion.update(score=0, status='unknown', references=[])
     for key, value in {'LLM_PROVIDER': 'openai_compatible', 'LLM_BASE_URL': 'https://model.example.test/v1', 'LLM_MODEL': 'synthetic', 'LLM_API_KEY': 'synthetic-only'}.items():
         monkeypatch.setenv(key, value)
     calls = []
@@ -745,7 +747,9 @@ def test_s04_from_import_model_invite_mail_recovery_and_restart(env, monkeypatch
     client, headers, factory = env
     record = import_sample(env, 4)
     with factory() as session: payload = _mock_evaluation(matching_input(session.get(Application, record.id)))
-    for dimension in payload['dimensions']: dimension.update(score=0, references=[])
+    for dimension in payload['dimensions']:
+        for criterion in dimension['criteria']:
+            criterion.update(score=0, status='unknown', references=[])
     for key, value in {'LLM_PROVIDER': 'openai_compatible', 'LLM_BASE_URL': 'https://model.example.test/v1', 'LLM_MODEL': 'synthetic', 'LLM_API_KEY': 'synthetic-only'}.items(): monkeypatch.setenv(key, value)
     monkeypatch.setattr('app.ai.client.httpx.post', lambda url, **kwargs: httpx.Response(401, request=httpx.Request('POST', url)))
     assert client.post(f'/api/applications/{record.id}/evaluate', headers=headers).status_code >= 400

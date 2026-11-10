@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import json
+from collections import Counter
+from datetime import date
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -13,10 +16,11 @@ from app.ai.prompts import (
     SCORING_DIMENSIONS,
     STRUCTURE_SCHEMA_VERSION,
     build_evaluation_messages,
+    build_scoring_contract,
     build_structure_messages,
 )
 from app.services.redaction import extract_contact_info, redact_data, redact_text
-from app.services.imports import build_rule_parse, _contains_term, _positive_fragments
+from app.services.imports import build_rule_parse, _contains_term, _positive_fragments, _extract_known_skills
 
 
 EXPERIENCE_FIELDS: dict[str, tuple[str, ...]] = {
@@ -158,65 +162,96 @@ def _normalize_structure(
     }
 
 
-def _normalize_evaluation(raw: dict[str, Any]) -> dict[str, Any]:
+def _evaluation_summary(dimensions: list[dict[str, Any]], checks: dict[str, Any]) -> str:
+    # 摘要只汇总已校验条款，不再次推断技能与项目的关联。
+    counts = Counter(entry["status"] for item in dimensions if item["applicable"] for entry in item["criteria"])
+    labels = {"quantified": "量化", "implemented": "实现", "transfer": "迁移",
+              "self_report": "自述", "unknown": "缺证", "conflict": "冲突"}
+    evidence = "、".join(f"{label}{counts[status]}项" for status, label in labels.items() if counts[status])
+    attendance = "；".join(f"{name}{check['status']}" for name, check in checks.items())
+    return f"条款证据：{evidence}。{attendance}（均不计分）。缺证不代表不会，详情交HR核实。"
+
+
+def _normalize_evaluation(raw: dict[str, Any], structured_data: dict[str, Any]) -> dict[str, Any]:
+    contract = build_scoring_contract(structured_data)
+    if not any(item["weight"] for item in contract):
+        raise ValueError("JD未提供可评分的岗位要求，请先补充JD")
     dimensions = raw.get("dimensions")
     if not isinstance(dimensions, list):
-        raise ValueError("dimensions 必须是列表")
-
-    by_name: dict[str, dict[str, Any]] = {}
-    for item in dimensions:
-        dimension = _as_dict(item, "dimension")
-        name = _text(dimension.get("name"), limit=100)
-        if name in by_name:
-            raise ValueError(f"评分维度重复: {name}")
-        by_name[name] = dimension
-
-    normalized_dimensions: list[dict[str, Any]] = []
-    total = 0.0
-    for definition in SCORING_DIMENSIONS:
+        raise ValueError("dimensions必须是列表")
+    by_name = {item.get("name"): item for item in dimensions if isinstance(item, dict)}
+    if len(by_name) != len(dimensions) or set(by_name) != {item["name"] for item in contract}:
+        raise ValueError("评分维度缺失、重复或未知")
+    # 总缺口由计分条款和出勤核验汇总，避免模型在全局说明中新增门槛或改写来源。
+    missing = []
+    normalized = []
+    for definition in contract:
         name = definition["name"]
-        if name not in by_name:
-            raise ValueError(f"缺少评分维度: {name}")
         item = by_name[name]
-        score = _score(item.get("score"))
-        weight = float(definition["weight"])
-        weighted_score = round(score * weight, 2)
-        total += weighted_score
-        normalized_dimensions.append(
-            {
-                "name": name,
-                "label": definition["label"],
-                "score": score,
-                "weight": weight,
-                "weighted_score": weighted_score,
-                "jd_requirement": _text(
-                    item.get("jd_requirement"),
-                    limit=1000,
-                ),
-                "resume_evidence": _text(
-                    item.get("resume_evidence"),
-                    limit=1000,
-                ),
-                "missing_or_conflicting": _string_list(
-                    item.get("missing_or_conflicting"),
-                    limit=20,
-                ),
-                "confidence": _confidence(item.get("confidence")),
-                "references": item.get("references", []),
-            }
-        )
-
-    reason = _text(raw.get("recommendation_reason"), limit=100)
-    return {
-        "evaluation_version": EVALUATION_VERSION,
-        "dimensions": normalized_dimensions,
-        "total_score": round(total, 2),
-        "missing_information": _string_list(
-            raw.get("missing_information"),
-            limit=50,
-        ),
-        "recommendation_reason": reason,
-    }
+        expected = definition["requirements"] if definition["applicable"] else []
+        # 维度是否计分由程序决定；出勤另行核验，不采用模型额外返回的条目。
+        entries = item.get("criteria") if definition["applicable"] else []
+        if not isinstance(entries, list):
+            raise ValueError("缺少逐条评分criteria")
+        indexed = {entry.get("id"): entry for entry in entries if isinstance(entry, dict)}
+        if len(indexed) != len(entries) or set(indexed) != {entry["id"] for entry in expected}:
+            raise ValueError("JD评分条款缺失、重复或被替换")
+        criteria = []
+        for requirement in expected:
+            entry = indexed[requirement["id"]]
+            score = _score(entry.get("score"))
+            status = entry.get("status")
+            allowed = {"unknown": (0,), "conflict": (0,), "self_report": (30,),
+                       "implemented": (70,), "quantified": (100,), "transfer": (30, 70)}
+            if status not in allowed or score not in allowed[status]:
+                raise ValueError("要求评分不符合0/30/70/100证据档位")
+            evidence = _text(entry.get("resume_evidence"))
+            references = entry.get("references", [])
+            if not isinstance(references, list):
+                raise ValueError("references必须是列表")
+            quotes = [str(ref.get("quote", "")) for ref in references if isinstance(ref, dict)] or [evidence]
+            if score >= 70 and (not entry.get("implementation_evidence") or not any(entry["implementation_evidence"] in quote for quote in quotes)):
+                raise ValueError("70/100分必须有逐字本人实现证据")
+            if score == 100:
+                verification, metric = entry.get("verification_evidence"), entry.get("metric_evidence")
+                if not verification or not any(verification in quote for quote in quotes) or not metric or not any(metric in quote for quote in quotes) or not re.search(r"\d+(?:\.\d+)?\s*(?:%|ms|毫秒|秒|倍|条|个(?!月|人|项目)|次|QPS|TPS)", metric, re.I):
+                    raise ValueError("100分须有成果/验证过程和相关量化指标的逐字证据")
+                catalog = structured_data.get("evidence_catalog") or {}
+                context = "\n".join(catalog.get(ref.get("id"), ref.get("quote", "")) for ref in references if isinstance(ref, dict)) or evidence
+                metric_clauses = [part for part in re.split(r"[，,；;。\n]", context) if metric in part]
+                if metric_clauses and all(re.search(r"团队|队友|全组|小组|公司|部门", part) and not re.search(r"本人|我(?:的|负责|实现|开发)", part) for part in metric_clauses):
+                    raise ValueError("100分不能使用未归属本人的团队量化指标")
+            notes = _string_list(entry.get("missing_or_conflicting"))
+            if status == "unknown":
+                notes.insert(0, "简历未提供该项证据，待HR核实；不代表不会")
+            elif status == "conflict":
+                notes.insert(0, "材料与要求存在明确冲突，交HR判断")
+            elif status == "transfer":
+                notes.insert(0, "存在可迁移依据；已覆盖内容及其余缺口仍需HR核实")
+            missing.extend(f"{requirement['text']}：{note}" for note in notes)
+            quoted_evidence = "；".join(dict.fromkeys(str(ref.get("quote", "")) for ref in references if isinstance(ref, dict) and ref.get("quote")))
+            criteria.append({**entry, "requirement": requirement["text"], "score": score,
+                             "resume_evidence": quoted_evidence or "未提供可引用证据",
+                             "missing_or_conflicting": notes, "references": references})
+        score = round(sum(entry["score"] for entry in criteria) / len(criteria), 2) if criteria else 0
+        weight = definition["weight"]
+        references = [ref for entry in criteria for ref in entry["references"]]
+        normalized.append({"name": name, "label": definition["label"], "score": score,
+                           "weight": weight, "weighted_score": round(score * weight, 2),
+                           "applicable": definition["applicable"], "criteria": criteria,
+                           "jd_requirement": "；".join(entry["text"] for entry in definition["requirements"]) or "JD未要求，不参与评分",
+                           "resume_evidence": "；".join(dict.fromkeys(entry.get("resume_evidence", "") for entry in criteria)) or "未提供",
+                           "references": references, "missing_or_conflicting": [note for entry in criteria for note in entry["missing_or_conflicting"]],
+                           "confidence": _confidence(item.get("confidence", 0.3)) if definition["applicable"] else 0})
+    checks = _eligibility_checks(structured_data)
+    communication = next(item for item in normalized if item["name"] == "communication_intent")
+    communication["eligibility"] = checks
+    communication["resume_evidence"] = "；".join(f"{key}：{value['status']}；{value['note']}" for key, value in checks.items())
+    missing.append(communication["resume_evidence"])
+    return {"evaluation_version": EVALUATION_VERSION, "dimensions": normalized,
+            "total_score": round(sum(item["score"] * item["weight"] for item in normalized), 2),
+            "missing_information": list(dict.fromkeys(missing)),
+            "recommendation_reason": _evaluation_summary(normalized, checks)}
 
 
 def _lines(text: str) -> list[str]:
@@ -296,87 +331,95 @@ def _weekly_days(text: str) -> tuple[int | None, str]:
     return next(iter(found.items())) if len(found) == 1 else (None, "")
 
 
-def _mock_evaluation(structured_data: dict[str, Any]) -> dict[str, Any]:
-    candidate = _as_dict(structured_data.get("candidate"), "candidate")
-    chat = _as_dict(structured_data.get("chat"), "chat")
-    job = _as_dict(structured_data.get("job"), "job")
-    required_skills = _string_list(job.get("required_skills"))
-    candidate_skills = _string_list(candidate.get("skills"))
-    # 人工确认的技能优先，不能从summary或旧简历把删除的技能重新加回来。
-    matched_skills = [skill for skill in required_skills
-                      if any(skill.casefold() == value.casefold() for value in candidate_skills)]
-
-    def coverage(matches: list[str]) -> float:
-        return round(100 * len(matches) / len(required_skills), 2) if required_skills else 0
-
-    def evidence_for(fields: tuple[str, ...]) -> tuple[str, list[str]]:
-        evidence = list(dict.fromkeys(
-            _text(item.get("evidence") or item.get("description"), limit=1000)
-            for field in fields for item in candidate.get(field) or []
-            if isinstance(item, Mapping) and (item.get("evidence") or item.get("description"))
-        ))
-        positive = "\n".join(_positive_fragments("\n".join(evidence)))
-        matches = [skill for skill in required_skills if _contains_term(positive, skill)]
-        return "；".join(evidence)[:1000], matches
-
-    project_evidence, project_matches = evidence_for(("project_experience",))
-    experience_evidence, experience_matches = evidence_for(("internship_experience", "work_experience"))
-    domain = _nullable_text(job.get("domain"), limit=200)
-    domain_text = "\n".join(_positive_fragments(project_evidence + "\n" + experience_evidence))
-    domain_match = bool(domain and _contains_term(domain_text, domain))
-    # 仅用本投递聊天；无聊天时参考简历自述，不推断为已核实。
+def _eligibility_checks(structured_data: dict[str, Any]) -> dict[str, Any]:
+    candidate, chat, job = (structured_data.get(key) or {} for key in ("candidate", "chat", "job"))
     chat_text = _text(chat.get("summary")) or "\n".join(
         _text(message.get("content")) for message in chat.get("messages") or []
         if isinstance(message, Mapping) and message.get("role") == "candidate"
     ) or "\n".join(_flatten_strings({key: chat.get(key) for key in ("intent", "availability")}))
-    availability_source = "本投递沟通" if chat_text.strip() else "简历自述（未核实）"
-    availability_text = chat_text if chat_text.strip() else "\n".join(
-        _text(document.get("text"), limit=100000) for document in structured_data.get("source_documents") or []
+    source = "本投递沟通" if chat_text.strip() else "简历自述"
+    hr_verified = chat.get("summary_source") == "hr_manual" and bool(re.match(r"\s*HR已(?:确认|核实)[:：]", _text(chat.get("summary"))))
+    available_text = chat_text if chat_text.strip() else "\n".join(
+        _text(doc.get("text"), limit=100000) for doc in structured_data.get("source_documents") or []
     ) or _text(candidate.get("summary"))
-    available_days, availability_evidence = _weekly_days(availability_text)
     requirement_text = job.get("raw_jd") or "\n".join(_flatten_strings(job))
-    required_days, _ = _weekly_days(requirement_text)
-    availability_known = available_days is not None and required_days is not None
-    availability_matches = availability_known and available_days >= required_days
-
-    skill_missing = [f"未找到已确认技能：{skill}" for skill in required_skills if skill not in matched_skills]
-    full_requirements = _string_list(job.get("other_requirements")) or ([requirement_text] if requirement_text else [])
-    missing = ["Mock未校准：分数仅为词项/明确出勤覆盖演示值，不代表熟练度、完整JD符合或录用建议",
-               "项目与实习/工作仅检查明确技术词；迁移能力、本人职责、测试质量及经验计分口径需人工确认"]
-    missing.extend(f"完整要求仍待逐项核对：{value}" for value in full_requirements)
-    missing.extend(skill_missing)
-    if not required_skills:
-        missing.append("JD没有可识别的必备技能，覆盖分未知")
-    if not domain:
-        missing.append("JD未明确业务领域；缺证记0不代表能力不足")
-    if not availability_known:
-        availability_note = "每周出勤要求或可用天数未知/冲突，暂不计算意向分；不等于不满足"
-    elif availability_matches:
-        availability_note = f"{availability_source}每周{available_days}天，达到文本中的{required_days}天要求；仍需HR核实"
+    available, evidence = _weekly_days(available_text)
+    required, _ = _weekly_days(requirement_text)
+    if available is None or required is None:
+        status, note = "未知", "要求或可用天数未说明/有歧义，待HR核实"
+    elif available < required:
+        status, note = "明确冲突", f"{source}每周{available}天，少于要求的{required}天"
     else:
-        availability_note = f"{availability_source}每周{available_days}天，少于文本中的{required_days}天要求；由HR核对"
-    missing.append(availability_note)
+        status = "自述满足"
+        note = f"{source}每周{available}天，满足文本要求{required}天，尚未经核实"
+    # 只有本投递保存的人工核实说明才能标已核实，模型不能自批。
+    if status == "自述满足" and hr_verified:
+        status, note = "已核实", f"本投递HR记录：每周{available}天，要求{required}天"
+    def start_date_in(text: str):
+        text = re.sub(r"^\s*HR已(?:确认|核实)[:：]", "", text)
+        values = set(re.findall(r"(?:^|\n)\s*(?:到岗时间|预计到岗)\s*[:：]\s*([^\n]+)", text.replace("；", "\n").replace(";", "\n")))
+        if len(values) != 1:
+            return None
+        value = values.pop()
+        try:
+            return date.fromisoformat(value.strip()) if value else None
+        except ValueError:
+            return None
+    start_text = available_text if re.search(r"到岗时间|预计到岗", available_text) else f"到岗时间：{chat.get('start_date') or ''}"
+    start = start_date_in(start_text)
+    deadline = start_date_in(requirement_text)
+    start_status = "未知"
+    start_note = f"自述：{start or '未提供明确日期'}；JD日期：{deadline or '未指定'}，待HR核实"
+    if start and deadline:
+        start_status = "自述满足" if start <= deadline else "明确冲突"
+        start_note = f"自述到岗{start}，JD要求不晚于{deadline}"
+        if start_status == "自述满足" and hr_verified:
+            start_status = "已核实"
+    return {"每周出勤": {"status": status, "note": note, "evidence": evidence},
+            "到岗时间": {"status": start_status, "note": start_note}}
 
-    values = (
-        ("required_skills", coverage(matched_skills), "、".join(required_skills), "、".join(matched_skills), skill_missing),
-        ("project_evidence", coverage(project_matches), "项目中已识别技能的覆盖", project_evidence,
-         [f"项目未找到明确词项：{skill}" for skill in required_skills if skill not in project_matches]),
-        ("relevant_experience", coverage(experience_matches), "实习/工作中已识别技能的覆盖，相关性待核实", experience_evidence,
-         [f"实习/工作未找到明确词项：{skill}" for skill in required_skills if skill not in experience_matches]),
-        ("domain_match", 100 if domain_match else 0, domain or "JD未明确业务领域", domain if domain_match else "",
-         [] if domain_match else ["领域证据不足，未知"]),
-        ("communication_intent", 100 if availability_matches else 0, "仅核对JD明确的每周出勤天数", availability_evidence, [availability_note]),
-    )
-    dimensions = [{"name": name, "score": score, "jd_requirement": requirement or "未知",
-                   "resume_evidence": evidence or "未找到明确证据，未知",
-                   "missing_or_conflicting": notes, "confidence": 0.3 if evidence else 0}
-                  for name, score, requirement, evidence, notes in values]
-    return {
-        "evaluation_version": EVALUATION_VERSION,
-        "dimensions": dimensions,
-        "missing_information": missing,
-        "recommendation_reason": "Mock未校准：仅演示已确认技能及经历词项、明确出勤的覆盖；不按条目数加分，完整要求与匹配合理性须人工核对。",
-    }
+
+def _mock_evaluation(structured_data: dict[str, Any]) -> dict[str, Any]:
+    candidate = _as_dict(structured_data.get("candidate"), "candidate")
+    skills = _string_list(candidate.get("skills"))
+    job_terms = _extract_known_skills((structured_data.get("job") or {}).get("raw_jd") or "\n".join(_flatten_strings(structured_data.get("job") or {})))
+    dimensions = []
+    for definition in build_scoring_contract(structured_data):
+        name = definition["name"]
+        fields = ("project_experience", "internship_experience", "work_experience")
+        practice = list(dict.fromkeys(_text(item.get("evidence") or item.get("description"))
+                    for field in fields for item in candidate.get(field) or [] if isinstance(item, Mapping)))
+        criteria = []
+        for requirement in definition["requirements"] if definition["applicable"] else []:
+            terms = _extract_known_skills(requirement["text"])
+            matched = terms and all(any(term.casefold() == skill.casefold() for skill in skills) for term in terms)
+            score, status, evidence, implementation = (30, "self_report", "、".join(terms), "") if matched else (0, "unknown", "", "")
+            for line in practice:
+                positive = "；".join(_positive_fragments(line))
+                # shortcut: Mock只识别显式技术词和本人动作，复合要求语义留给真实模型/HR。
+                supported = terms and all(_contains_term(positive, term) for term in terms)
+                if name == "project_evidence" and "本人" in requirement["text"]:
+                    supported = bool(re.search(r"本人|独立|负责", positive)) and any(_contains_term(positive, term) for term in job_terms)
+                if supported and re.search(r"编写|实现|开发|修复|完成|负责", positive):
+                    score, status, evidence, implementation = 70, "implemented", line, line
+                    break
+            references = []
+            catalog = (structured_data.get("evidence_catalog") or {}).items()
+            if status == "self_report":
+                catalog = sorted(catalog, key=lambda item: not item[0].endswith(":skills"))
+            for quote in terms if status == "self_report" else ([evidence] if score else []):
+                reference = next(({"id": key, "quote": quote} for key, text in catalog if quote and quote in text), None)
+                if reference and reference not in references:
+                    references.append(reference)
+            criteria.append({"id": requirement["id"], "score": score, "status": status,
+                             "resume_evidence": evidence, "implementation_evidence": implementation,
+                             "verification_evidence": "", "metric_evidence": "", "references": references,
+                             "missing_or_conflicting": ["Mock仅作保守词项演示，完整条款及本人贡献仍待语义审核"]})
+        dimensions.append({"name": name, "criteria": criteria, "confidence": 0.3,
+                           "score": round(sum(row["score"] for row in criteria) / len(criteria), 2) if criteria else 0})
+    return {"evaluation_version": EVALUATION_VERSION, "dimensions": dimensions,
+            "missing_information": ["Mock未校准；0是缺证占位，不能用于断言能力不足或自动招聘决定"],
+            "recommendation_reason": "Mock未校准：按R1—R5演示0/30/70档位；完整语义和量化证据待HR核对，出勤不计分，同岗同规则才可比较。"}
 
 
 class AIService:
@@ -408,6 +451,7 @@ class AIService:
             validator=lambda value: _normalize_structure(value, contacts),
         )
         output = result["content"]
+        output["job"]["raw_jd"] = jd_text
         output["ai_meta"] = {
             **result["meta"],
             "prompt_version": PROMPT_VERSION,
@@ -428,11 +472,17 @@ class AIService:
                 if key != "ai_meta"
             }
         )
+        if not safe_data.get("evidence_catalog"):
+            safe_data["evidence_catalog"] = {
+                f"candidate:{key}": json.dumps(value, ensure_ascii=False)
+                for key, value in (safe_data.get("candidate") or {}).items()
+                if key not in {"name", "phone", "email"} and value
+            }
         messages = build_evaluation_messages(safe_data)
         result = self.client.generate_json(
             messages=messages,
-            fallback=lambda: _mock_evaluation(structured_data),
-            validator=_normalize_evaluation,
+            fallback=lambda: _mock_evaluation(safe_data),
+            validator=lambda raw: _normalize_evaluation(raw, safe_data),
         )
         output = result["content"]
         output.update(
@@ -444,15 +494,18 @@ class AIService:
                 "prompt_version": PROMPT_VERSION,
             }
         )
-        if safe_data.get("evidence_catalog") and result["meta"]["provider"] != "mock":
+        if result["meta"]["provider"] == "mock":
+            output["recommendation_reason"] = "Mock未校准；" + output["recommendation_reason"]
+        else:
             catalog = safe_data["evidence_catalog"]
             for dimension in output["dimensions"]:
-                references = dimension["references"]
-                if not isinstance(references, list) or (dimension["score"] > 0 and not references):
-                    raise ValueError("评分缺少可定位证据引用")
-                for reference in references:
-                    if not isinstance(reference, dict) or reference.get("id") not in catalog or not reference.get("quote") or reference["quote"] not in catalog[reference["id"]]:
-                        raise ValueError("模型引用不存在或并非输入原文")
+                for entry in dimension["criteria"]:
+                    references = entry["references"]
+                    if (entry["score"] > 0 or entry["status"] == "conflict") and not references:
+                        raise ValueError("评分或冲突判断缺少可定位证据引用")
+                    for reference in references:
+                        if not isinstance(reference, dict) or reference.get("id") not in catalog or not reference.get("quote") or reference["quote"] not in catalog[reference["id"]]:
+                            raise ValueError("模型引用不存在或并非输入原文")
         return output
 
     def analyze_candidate(

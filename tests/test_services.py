@@ -235,9 +235,8 @@ def test_mock_ai_returns_five_dimensions_and_correct_weighted_total() -> None:
         }
     )
 
-    expected_weights = {
-        item["name"]: float(item["weight"]) for item in SCORING_DIMENSIONS
-    }
+    expected_weights = {"required_skills": 35 / 65, "project_evidence": 0,
+                        "relevant_experience": 20 / 65, "domain_match": 10 / 65, "communication_intent": 0}
     dimensions = result["dimensions"]
 
     assert len(dimensions) == 5

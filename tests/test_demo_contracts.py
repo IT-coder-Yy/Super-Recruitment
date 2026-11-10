@@ -774,10 +774,14 @@ def test_online_evidence_references_are_validated_and_persisted(env, monkeypatch
         payload = _mock_evaluation(snapshot)
         for dimension in payload["dimensions"]:
             dimension["score"], dimension["references"] = 0, []
-        payload["dimensions"][0].update(score=75, references=[{"id":evidence_id,"quote":quote}])
-        if invalid == "missing": payload["dimensions"][0]["references"] = []
-        if invalid == "unknown": payload["dimensions"][0]["references"][0]["id"] = "source:missing"
-        if invalid == "invented": payload["dimensions"][0]["references"][0]["quote"] = "不存在的事实"
+            for criterion in dimension["criteria"]:
+                criterion.update(score=0, status="unknown", references=[])
+        scored_dimension = next(dimension for dimension in payload["dimensions"] if dimension["criteria"])
+        criterion = scored_dimension["criteria"][0]
+        criterion.update(score=30, status="self_report", references=[{"id":evidence_id,"quote":quote}])
+        if invalid == "missing": criterion["references"] = []
+        if invalid == "unknown": criterion["references"][0]["id"] = "source:missing"
+        if invalid == "invented": criterion["references"][0]["quote"] = "不存在的事实"
         def synthetic_request(self, messages):
             text = json.dumps(messages,ensure_ascii=False)
             assert app.candidate.phone not in text and app.candidate.email not in text
@@ -791,7 +795,7 @@ def test_online_evidence_references_are_validated_and_persisted(env, monkeypatch
         else:
             result = evaluate_application_record(session, app)
             evaluation = session.get(Evaluation, result["evaluation_id"])
-            assert evaluation.scores[0]["references"] == [{"id":evidence_id,"quote":quote}]
+            assert next(dimension for dimension in evaluation.scores if dimension["name"] == scored_dimension["name"])["references"] == [{"id":evidence_id,"quote":quote}]
         assert app.status == ApplicationStatus.OFFER_PENDING
 
 

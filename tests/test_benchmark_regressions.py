@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.ai.client import LLMClient
-from app.ai.service import AIService, _mock_evaluation, _weekly_days
+from app.ai.service import AIService, _mock_evaluation, _normalize_evaluation, _weekly_days
 from app.services.imports import build_rule_parse
 
 
@@ -13,7 +13,7 @@ SAMPLES = Path(__file__).parent / "fixtures/demo"
 
 
 def scores(data):
-    return {item["name"]: item["score"] for item in _mock_evaluation(data)["dimensions"]}
+    return {item["name"]: item["score"] for item in _normalize_evaluation(_mock_evaluation(data), data)["dimensions"]}
 
 
 @pytest.mark.parametrize("text,present,absent", [
@@ -81,7 +81,9 @@ def test_demo_duplicate_and_unrelated_entries_do_not_raise_scores(sample, job):
         changed["candidate"][field].append({"evidence": "活动海报与视觉设计"})
     assert scores(changed) == baseline
     assert baseline["domain_match"] == 0
-    assert baseline["communication_intent"] == (0 if sample == "r09" else 100)
+    assert baseline["communication_intent"] == 0
+    check = _normalize_evaluation(_mock_evaluation(data), data)["dimensions"][-1]["eligibility"]["每周出勤"]
+    assert check["status"] == ("未知" if sample == "r09" else "自述满足")
     assert "未校准" in _mock_evaluation(data)["recommendation_reason"]
 
 
@@ -98,7 +100,7 @@ def test_current_application_chat_wins_over_resume_availability():
     # 无法识别的安排也不能退回旧简历而宣布满足。
     assert scores(data)["communication_intent"] == 0
     data["chat"] = {"summary": "每周三天"}
-    assert "少于" in _mock_evaluation(data)["missing_information"][-1]
+    assert "少于" in _normalize_evaluation(_mock_evaluation(data), data)["missing_information"][-1]
 
 
 def test_recruiter_message_is_not_candidate_availability():
@@ -106,6 +108,8 @@ def test_recruiter_message_is_not_candidate_availability():
     data["chat"] = {"messages": [{"role": "hr", "content": "每周四天"}]}
     assert scores(data)["communication_intent"] == 0
     data["chat"]["messages"].append({"role": "candidate", "content": "每周三天"})
-    assert "少于" in _mock_evaluation(data)["missing_information"][-1]
+    assert "少于" in _normalize_evaluation(_mock_evaluation(data), data)["missing_information"][-1]
     data["chat"]["summary"] = "HR已确认：每周四天"
-    assert scores(data)["communication_intent"] == 100
+    data["chat"]["summary_source"] = "hr_manual"
+    assert scores(data)["communication_intent"] == 0
+    assert _normalize_evaluation(_mock_evaluation(data), data)["dimensions"][-1]["eligibility"]["每周出勤"]["status"] == "已核实"

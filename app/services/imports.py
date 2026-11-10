@@ -556,12 +556,13 @@ def build_rule_parse(
         },
         "job": {
             "title": job_title,
+            "raw_jd": jd_text or "",
             "responsibilities": _section_lines(jd_text or "", ("负责", "职责", "工作内容"), limit=5),
             "required_skills": _extract_known_skills(jd_text or ""),
             "preferred_skills": _section_lines(jd_text or "", ("优先", "加分"), limit=5),
             "experience_requirements": _section_lines(jd_text or "", ("经验", "经历"), limit=5),
             "education_requirements": _section_lines(jd_text or "", ("学历", "本科", "硕士", "博士"), limit=5),
-            "domain": None,
+            "domain": _labeled_value(jd_text or "", ("业务领域", "行业", "domain")),
             "other_requirements": _section_lines(jd_text or "", ("要求", "requirement"), limit=10),
         },
         "quality": {

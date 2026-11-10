@@ -27,6 +27,8 @@ def matching_input(application: Application) -> dict:
     # 沟通属于投递，不能沿用候选人全局的其他岗位聊天。
     structured["chat"] = {"summary": (application.extra_data or {}).get("manual_chat", ""),
                           "messages": [m for s in sources for m in (s.raw_chat or [])]}
+    if structured["chat"]["summary"]:
+        structured["chat"]["summary_source"] = "hr_manual"
     structured["source_documents"] = [{"source_id": s.id, "text": s.raw_resume or ""} for s in sources]
     structured.pop("human_summary", None)
     structured["candidate"].pop("note", None)

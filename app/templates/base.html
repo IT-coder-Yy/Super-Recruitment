@@ -9,7 +9,7 @@
   <script src="/static/js/theme.js"></script>
   <link rel="stylesheet" href="/static/css/admin.css">
   <link rel="stylesheet" href="/static/css/theme.css">
-  <link rel="stylesheet" href="/static/css/workflows.css">
+  <link rel="stylesheet" href="/static/css/workflows.css?v=calendar-20261107">
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -80,6 +80,7 @@
         <div class="page-heading"><h1>{% block page_title %}招聘工作台{% endblock %}</h1><p>{% block page_subtitle %}{% endblock %}</p></div>
         {% if active_page in ['workbench','dashboard','candidates','evaluations','interviews','offers','onboarding','follow_ups','exams'] %}
         <form class="toolbar" method="get" action="{{ request.url.path }}" aria-label="招聘类型筛选">
+          {% if active_page == 'dashboard' and calendar is defined %}<input type="hidden" name="calendar_month" value="{{ calendar.month }}"><input type="hidden" name="calendar_date" value="{{ calendar.selected_date }}">{% endif %}
           <label for="recruitment-type">招聘类型</label>
           <select class="select" id="recruitment-type" name="recruitment_type" style="width:auto">{% for value,label in recruitment_types.items() %}<option value="{{ value }}" {% if recruitment_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
           <button class="button" type="submit">切换</button>

@@ -96,7 +96,7 @@
     {% else %}<div class="empty-state"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><h3>还没有面试安排</h3><p>先审核候选人，再为合适的人选安排面试。</p><a class="button button-primary" href="/evaluations">审核候选人</a></div>{% endfor %}
   </div></section>
 </div>
-<details class="workflow-disclosure workflow-integration-note"><summary><span><strong>预约与通知说明</strong><small>候选人确认预约后创建会议</small></span></summary><div class="surface-body"><p>会议按部署配置使用 Mock 或真实腾讯会议，结果未知时需 HR 核实，不能重复建会。预约邮件按 SMTP 配置发送或写入 Mock 记录，可在通知记录中核对结果；创建会议本身不发送额外通知。</p><div class="button-row"><a class="button button-sm" href="/settings#meeting">查看集成设置</a><a class="button button-sm" href="/notifications">查看通知记录</a></div></div></details>
+<details class="workflow-disclosure workflow-integration-note"><summary><span><strong>预约与通知说明</strong><small>候选人确认预约后创建会议</small></span></summary><div class="surface-body"><p>会议按部署配置使用 Mock 或真实腾讯会议，结果未知时需 HR 核实，不能重复建会。已确认的排期展示在项目内日历，无需外部日历账号。预约邮件按 SMTP 配置发送或写入 Mock 记录，可在通知记录中核对结果；创建会议本身不发送额外通知。</p><div class="button-row"><a class="button button-sm" href="/dashboard?recruitment_type={{ recruitment_type }}#interview-calendar">查看面试日历</a><a class="button button-sm" href="/settings#meeting">查看集成设置</a><a class="button button-sm" href="/notifications">查看通知记录</a></div></div></details>
 {% endblock %}
 {% block scripts %}<script>
 document.querySelectorAll('[data-interview-target]').forEach((link) => {

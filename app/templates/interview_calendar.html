@@ -1,0 +1,33 @@
+{% macro calendar_url(month, day='') -%}/dashboard?recruitment_type={{ recruitment_type }}&amp;calendar_month={{ month }}{% if day %}&amp;calendar_date={{ day }}{% endif %}#interview-calendar{%- endmacro %}
+<header class="surface-header">
+  <div><h2 class="surface-title" id="interview-calendar-title">面试日历</h2><p class="card-subtitle">已确认及已完成的面试 · 北京时间 · 本月 {{ calendar.month_count }} 场</p></div>
+  <a class="button button-sm" href="/interviews?recruitment_type={{ recruitment_type }}">查看面试排期</a>
+</header>
+<div class="interview-calendar-layout">
+  <div class="interview-calendar-month">
+    <nav class="interview-calendar-nav" aria-label="切换日历月份">
+      {% if calendar.previous_month %}<a class="button button-sm" id="calendar-previous" href="{{ calendar_url(calendar.previous_month) }}" aria-label="上个月"><svg class="icon calendar-previous-icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a>{% endif %}
+      <h3>{{ calendar.title }}</h3>
+      {% if calendar.next_month %}<a class="button button-sm" id="calendar-next" href="{{ calendar_url(calendar.next_month) }}" aria-label="下个月"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#chevron"/></svg></a>{% endif %}
+      <a class="button button-sm" id="calendar-today" href="{{ calendar_url(calendar.today_month, calendar.today) }}">今天</a>
+    </nav>
+    <table class="interview-calendar-grid" aria-label="{{ calendar.title }}面试日历">
+      <thead><tr>{% for day in ['一','二','三','四','五','六','日'] %}<th scope="col">周{{ day }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for week in calendar.weeks %}<tr>{% for day in week %}<td>{% if day %}
+        <a id="calendar-day-{{ day.number }}" class="calendar-day{% if day.today %} is-today{% endif %}{% if day.selected %} is-selected{% endif %}" href="{{ calendar_url(calendar.month, day.date) }}" aria-label="{{ day.date }}{% if day.today %}，今天{% endif %}，{{ day.count }}场面试"{% if day.selected %} aria-current="date"{% endif %}>
+          <span class="calendar-day-number">{{ day.number }}</span><span class="calendar-day-count">{{ day.count|string + '场' if day.count else '今天' if day.today else '' }}</span>
+        </a>
+      {% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <section class="interview-calendar-agenda" aria-labelledby="calendar-selected-title">
+    <header><h3 id="calendar-selected-title">{{ calendar.selected_label }}</h3><span class="muted">{{ calendar.events|length }} 场面试</span></header>
+    <ol class="interview-calendar-events">
+      {% for event in calendar.events %}<li>
+        <div class="calendar-event-heading"><strong>{{ event.period or event.time }}</strong><span class="muted">{{ event.status }}</span></div>
+        <a href="{{ event.href }}">{{ event.name }}<span class="calendar-event-round">第 {{ event.round }} 轮</span></a>
+        <p>{{ event.job }}</p>
+      </li>{% else %}<li class="calendar-empty"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#calendar"/></svg><strong>当天暂无面试安排</strong><p>可切换日期查看，或前往面试排期。</p></li>{% endfor %}
+    </ol>
+  </section>
+</div>

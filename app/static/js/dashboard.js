@@ -7,6 +7,7 @@
   const stages = [["applications", "投递"], ["screened", "初筛"], ["assessments", "测评"], ["written", "笔试"], ["interviews", "面试"], ["offers", "Offer"], ["onboarded", "入职"]]
     .filter(([key]) => root.querySelector('[data-funnel="' + key + '"]'));
   let refreshing = false;
+  let lastCalendarHtml = null;
   function textElement(tag, value, className) {
     const el = document.createElement(tag);
     el.textContent = value;
@@ -14,6 +15,14 @@
     return el;
   }
   function render(data) {
+    const calendar = root.querySelector("[data-interview-calendar]");
+    if (calendar && typeof data.calendar_html === "string" && data.calendar_html !== lastCalendarHtml) {
+      const focusedId = calendar.contains(document.activeElement) ? document.activeElement.id : null;
+      // HTML来自本站Jinja模板，候选人和岗位字段由模板自动转义。
+      calendar.innerHTML = data.calendar_html;
+      lastCalendarHtml = data.calendar_html;
+      if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
+    }
     document.querySelectorAll('[data-recruitment-metric]').forEach(el => {
       el.textContent = data.by_recruitment_type[el.dataset.recruitmentKind][el.dataset.recruitmentMetric];
     });

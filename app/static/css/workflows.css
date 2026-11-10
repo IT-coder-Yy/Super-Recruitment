@@ -93,6 +93,45 @@
 .workflow-dashboard .metric-top { flex-direction: column; align-items: start; gap: 3px; }
 .workflow-dashboard .metric-value { margin-top: 12px; font-size: 30px; }
 .workflow-dashboard .chart-table { font-size: 12px; }
+.interview-calendar { margin-block: 16px; scroll-margin-top: 80px; }
+.interview-calendar-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr); }
+.interview-calendar-month { padding: 20px; }
+.interview-calendar-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.interview-calendar-nav h3 { margin: 0 auto 0 4px; font-size: 16px; font-variant-numeric: tabular-nums; }
+.calendar-previous-icon { transform: rotate(180deg); }
+.interview-calendar-grid { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.interview-calendar-grid th { padding: 8px 0; font-size: 12px; font-weight: 500; color: var(--ink-muted); }
+.interview-calendar-grid td { padding: 3px; text-align: center; }
+.calendar-day { display: flex; min-height: 59px; flex-direction: column; align-items: center; justify-content: center; gap: 1px; border: 1px solid transparent; border-radius: 7px; font-variant-numeric: tabular-nums; }
+.calendar-day:hover { background: var(--surface-hover); }
+.calendar-day.is-today { border-color: var(--line-strong); }
+.calendar-day.is-selected { color: var(--primary-contrast); background: var(--primary); }
+.calendar-day-number { font-size: 14px; font-weight: 600; }
+.calendar-day-count { min-height: 18px; font-size: 11px; }
+.interview-calendar-agenda { min-width: 0; padding: 24px; border-left: 1px solid var(--line); }
+.interview-calendar-agenda > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.interview-calendar-agenda h3 { margin: 0; font-size: 15px; }
+.interview-calendar-events { max-height: 370px; margin: 16px 0 0; padding: 0; overflow-y: auto; list-style: none; }
+.interview-calendar-events li { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.interview-calendar-events li:first-child { padding-top: 0; }
+.interview-calendar-events li:last-child { border-bottom: 0; }
+.calendar-event-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.interview-calendar-events a { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.calendar-event-round { margin-left: 8px; color: var(--ink-muted); font-size: 12px; font-weight: 400; }
+.interview-calendar-events p { margin: 6px 0 0; color: var(--ink-muted); font-size: 12px; overflow-wrap: anywhere; }
+.interview-calendar-events .calendar-empty { padding-top: 50px; text-align: center; }
+.calendar-empty .icon { display: block; width: 28px; height: 28px; margin: 0 auto 12px; color: var(--ink-muted); }
+.calendar-empty strong { font-size: 13px; }
+@media (max-width: 979px) {
+  .interview-calendar-layout { grid-template-columns: 1fr; }
+  .interview-calendar-agenda { border-left: 0; border-top: 1px solid var(--line); }
+  .interview-calendar-events .calendar-empty { padding-top: 20px; }
+}
+@media (max-width: 639px) {
+  .interview-calendar-month, .interview-calendar-agenda { padding: 16px; }
+  .interview-calendar-grid td { padding: 1px; }
+  .calendar-day { min-height: 50px; }
+}
 .workflow-mock .mock-platform-logo { color: var(--primary-contrast); background: var(--primary); }
 .workflow-mock .mock-avatar, .workflow-mock .mock-tag, .workflow-mock .mock-message.is-candidate { color: var(--ink); background: var(--surface-subtle); }
 .workflow-mock .mock-section p, .workflow-mock .mock-section li, .workflow-mock .mock-message { color: var(--ink); }

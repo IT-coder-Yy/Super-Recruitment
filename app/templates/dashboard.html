@@ -4,7 +4,7 @@
 {% block page_subtitle %}招聘漏斗、Offer 转化、入职率与岗位进度{% endblock %}
 {% block topbar_actions %}<span class="status status-success" data-live-status>实时更新中</span>{% endblock %}
 {% block content %}
-<div class="workflow-page workflow-dashboard" data-dashboard data-endpoint="/api/dashboard/summary?recruitment_type={{ recruitment_type }}" data-interval="10000">
+<div class="workflow-page workflow-dashboard" data-dashboard data-endpoint="/api/dashboard/summary?recruitment_type={{ recruitment_type }}&amp;calendar_month={{ calendar.month }}&amp;calendar_date={{ calendar.selected_date }}" data-interval="10000">
   <div class="toolbar" aria-label="看板范围">
     <span class="status status-primary">{{ recruitment_types[recruitment_type] }}岗位 · 累计数据</span>
     <span class="toolbar-spacer"></span><span class="muted">最后更新：<span data-updated-at>刚刚</span></span><a class="button button-sm" href="/api/exports/recruitment.xlsx?recruitment_type={{ recruitment_type }}">导出数据</a>
@@ -14,6 +14,7 @@
     <article class="metric-card"><div class="metric-top"><span class="metric-label">{{ label }}</span><span class="metric-state {% if key == 'overdue' and summary[key] %}is-danger{% endif %}">{{ help }}</span></div><div class="metric-value {% if key == 'overdue' and summary[key] %}text-danger{% endif %}" data-metric="{{ key }}">{{ summary[key] }}</div></article>
     {% endfor %}
   </section>
+  <section class="work-surface interview-calendar" id="interview-calendar" aria-labelledby="interview-calendar-title" data-interview-calendar>{% include "interview_calendar.html" %}</section>
   {% if recruitment_type != 'internship' %}
   <section class="work-surface"><header class="surface-header"><h2>测评与笔试</h2><p class="card-subtitle">发放与结论分别统计；Mock 发放计入，历史未记录不视为通过</p></header><div class="table-wrap"><table class="data-table"><thead><tr><th>阶段</th><th>已发放</th><th>通过</th><th>不通过</th><th>跳过</th><th>历史未记录</th></tr></thead><tbody>{% for kind,label in [('assessment','测评'),('written','笔试')] %}<tr><td>{{ label }}</td>{% for result in ['sent','passed','failed','skipped','historical_unrecorded'] %}<td data-exam-kind="{{ kind }}" data-exam-result="{{ result }}">{{ summary.exam_counts[kind][result] }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></section>
   {% endif %}
@@ -45,4 +46,4 @@
   <section class="work-surface workflow-table" style="margin-top:16px"><header class="surface-header"><div><h2 class="surface-title">岗位招聘进度</h2><p class="card-subtitle">各岗位累计收到的投递记录</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>岗位</th><th>累计投递</th></tr></thead><tbody data-dashboard-jobs>{% for item in summary.jobs %}<tr><td>{{ item.name }}</td><td>{{ item.count }}</td></tr>{% else %}<tr><td colspan="2">暂无岗位数据</td></tr>{% endfor %}</tbody></table></div></section>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/dashboard.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/js/dashboard.js?v=calendar-20261107" defer></script>{% endblock %}

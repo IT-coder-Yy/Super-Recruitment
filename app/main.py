@@ -68,6 +68,7 @@ from app.models import (
 from app.schemas import EvaluationCreate, EvaluationDimension, InterviewCreate, InterviewSlotCreate
 from app.seed import seed_database
 from app.workbench import appointment_time, build_workbench_context
+from app.interview_calendar import build_interview_calendar
 from app.services.auth import current_actor, current_user_id, hash_password, normalize_username, verify_password
 from app.services.candidates import normalize_name, normalize_phone, revise_candidate
 from app.services.exporter import export_recruitment_csv, export_recruitment_xlsx
@@ -872,7 +873,19 @@ def dashboard(request: Request, session: Session = Depends(get_db)):
         "dashboard.html",
         "dashboard",
         summary=_dashboard_data(session, _recruitment_type(request)),
+        calendar=_calendar_data(request, session),
     )
+
+
+def _calendar_data(request: Request, session: Session) -> dict:
+    try:
+        return build_interview_calendar(
+            session, month=request.query_params.get("calendar_month"),
+            selected_date=request.query_params.get("calendar_date"),
+            recruitment_type=_recruitment_type(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日历日期无效，请返回看板选择月份") from exc
 
 
 @app.get("/candidates")
@@ -2242,7 +2255,11 @@ def export_csv_api(request: Request, session: Session = Depends(get_db)) -> Resp
 
 @app.get("/api/dashboard/summary")
 def dashboard_summary(request: Request, session: Session = Depends(get_db)) -> dict[str, Any]:
-    return _dashboard_data(session, _recruitment_type(request))
+    result = _dashboard_data(session, _recruitment_type(request))
+    result["calendar_html"] = templates.env.get_template("interview_calendar.html").render(
+        calendar=_calendar_data(request, session), recruitment_type=_recruitment_type(request),
+    )
+    return result
 
 
 @app.get("/api/audit")

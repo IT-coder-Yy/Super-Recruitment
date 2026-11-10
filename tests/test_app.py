@@ -4,6 +4,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +17,7 @@ from app import config as app_config  # noqa: E402
 from app import db as app_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services import imports as import_service  # noqa: E402
+from app.services.scheduling import DEFAULT_TIMEZONE  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -587,9 +589,10 @@ def test_offer_and_onboarding_full_loop(
 
     row = _application_row(authenticated_client, application_id)
     assert row["status"] == "onboarding"
+    today = datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).date().isoformat()
     for action, version, values in [
-        ("update", 0, {"expected_date": now.date().isoformat(), "location": "虚构前台"}),
-        ("join", 1, {"actual_date": now.date().isoformat(), "note": "HR 核实本人实际到岗"}),
+        ("update", 0, {"expected_date": today, "location": "虚构前台"}),
+        ("join", 1, {"actual_date": today, "note": "HR 核实本人实际到岗"}),
     ]:
         result = authenticated_client.post(f"/api/applications/{application_id}/onboarding", headers=_csrf_headers(authenticated_client),
             data={"action": action, "version": version, **values})

@@ -119,17 +119,16 @@ class WeComWebhookNotifier:
                 payload=payload,
                 request_id=resolved_request_id,
                 error_type="timeout",
-                error_message=str(exc) or "企业微信调用超时",
+                error_message="企业微信调用超时",
             )
         except httpx.HTTPStatusError as exc:
             result = _failure_result(
                 payload=payload,
                 request_id=resolved_request_id,
                 error_type="http_error",
-                error_message=str(exc),
+                error_message=f"企业微信HTTP请求失败（{exc.response.status_code}）",
                 response={
                     "status_code": exc.response.status_code,
-                    "body": exc.response.text[:1000],
                 },
             )
         except (httpx.RequestError, ValueError, json.JSONDecodeError) as exc:
@@ -137,14 +136,14 @@ class WeComWebhookNotifier:
                 payload=payload,
                 request_id=resolved_request_id,
                 error_type="request_error",
-                error_message=str(exc),
+                error_message=f"企业微信请求或响应无效（{type(exc).__name__}）",
             )
         except Exception as exc:  # 注入的兼容客户端可能抛出非 httpx 异常
             result = _failure_result(
                 payload=payload,
                 request_id=resolved_request_id,
                 error_type="unexpected_error",
-                error_message=str(exc),
+                error_message=f"企业微信通知异常（{type(exc).__name__}）",
             )
         return _raise_or_return(result, raise_on_error)
 

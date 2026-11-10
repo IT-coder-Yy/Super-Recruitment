@@ -399,6 +399,28 @@ def test_wecom_failure_persists_and_explicit_retry_recovers(env, monkeypatch, fa
         assert session.get(Application, record.id).status == ApplicationStatus.EVALUATION_REVIEW
 
 
+@pytest.mark.parametrize('failure', ['http', 'timeout', 'connection', 'unexpected'])
+def test_wecom_transport_errors_do_not_expose_webhook_key(monkeypatch, failure):
+    from app.adapters.notifications import WeComWebhookNotifier, NotificationError
+    secret = 'synthetic-webhook-secret'
+    url = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=' + secret
+    def request(target, **kwargs):
+        assert target == url
+        if failure == 'http':
+            return httpx.Response(500, text=url, request=httpx.Request('POST', url))
+        error = {'timeout': httpx.ReadTimeout, 'connection': httpx.ConnectError, 'unexpected': RuntimeError}[failure]
+        raise error('request failed: ' + url)
+    monkeypatch.setattr('app.adapters.notifications.httpx.post', request)
+    with pytest.raises(NotificationError) as caught:
+        WeComWebhookNotifier(url).send('synthetic notification', raise_on_error=True)
+    result = caught.value.result
+    assert result['ok'] is False and result['status'] == 'failed'
+    assert secret not in str(caught.value)
+    assert secret not in json.dumps(result)
+    if failure == 'http':
+        assert result['response']['status_code'] == 500
+
+
 def login(client, username):
     token = re.search(r'name="csrf_token" value="([^"]+)"', client.get('/register').text)[1]
     assert client.post('/register', data={'username': username, 'password': 'password123', 'csrf_token': token}).status_code == 200

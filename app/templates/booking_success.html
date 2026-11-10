@@ -1,13 +1,18 @@
 {% extends "public_base.html" %}
-{% block title %}预约成功 · TalentFlow{% endblock %}
+{% block title %}{{ '预约待确认' if pending else '预约成功' }} · TalentFlow{% endblock %}
 {% block content %}
 <main id="main-content" class="public-content">
   <article class="public-document public-success" aria-labelledby="booking-success-title">
-    <span class="public-success-mark"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#check"/></svg></span>
+    <span class="public-success-mark"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#{{ 'calendar' if pending else 'check' }}"/></svg></span>
+    {% if pending %}
+    <h1 id="booking-success-title">预约正在核实</h1>
+    <p>已收到你的时段选择，会议尚未确认。请联系招聘负责人核实结果，无需重复提交。</p>
+    {% else %}
     <h1 id="booking-success-title">面试时间已确认</h1>
     <p>系统已锁定所选时段，招聘负责人可以查看你的预约结果。</p>
-    <div class="public-success-next"><h2>接下来</h2><p>当前会议为 Mock 演示安排。请与招聘负责人确认实际会议方式及面试准备事项；如需改期，请提前联系对方。</p></div>
+    <div class="public-success-next"><h2>接下来</h2>{% if meeting_url %}<p><a class="button button-primary" href="{{ meeting_url }}" target="_blank" rel="noopener">打开腾讯会议</a></p><p>请保存会议链接，按约定时间参加面试；如需改期，请联系招聘负责人。</p>{% else %}<p>当前会议为 Mock 演示安排。请与招聘负责人确认实际会议方式及面试准备事项；如需改期，请提前联系对方。</p>{% endif %}</div>
     <p class="public-footnote">预约已完成，你可以关闭此页面。</p>
+    {% endif %}
   </article>
 </main>
 {% endblock %}

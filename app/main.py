@@ -37,6 +37,8 @@ ensure_runtime_dirs()
 reload_env(override=False)
 
 from app.adapters.meeting import create_mock_tencent_meeting
+from app.adapters.tencent_meeting import MeetingError
+from app.services import meetings
 from app.ai.service import AIService
 from app.ai.prompts import EVALUATION_VERSION
 from app.db import SessionLocal, get_db, init_db, session_scope
@@ -1000,11 +1002,17 @@ def _delete_candidate(
     confirm: str,
     session: Session,
 ) -> dict[str, Any]:
+    # 与预约占用使用同一写锁，避免外部请求进行中删除恢复凭据。
+    from sqlalchemy import update
+    session.execute(update(Interview).where(Interview.id == -1).values(id=Interview.id))
     candidate = session.get(Candidate, candidate_id)
     if candidate is None:
         raise HTTPException(404, "候选人不存在")
     if confirm.strip() != "DELETE":
         raise HTTPException(422, "请输入 DELETE 确认删除")
+    if any(i.meeting_status in meetings.PENDING or i.meeting_status == "real_created"
+           for a in candidate.applications for i in a.interviews):
+        raise HTTPException(409, "候选人存在真实会议或待核实建会记录，请先保留资料并处理会议")
     write_audit_log(
         session,
         actor="本地管理员",
@@ -1596,6 +1604,8 @@ def schedule_application(
         )
     if application.status != ApplicationStatus.SCHEDULING:
         raise HTTPException(409, "当前状态不允许排期，请先由 HR 选择进入面试")
+    if any(i.meeting_status in meetings.PENDING for i in application.interviews):
+        raise HTTPException(409, "建会结果待核实，已保留所选时段；请先处理已有建会记录")
 
     interview = max(
         (
@@ -1626,6 +1636,9 @@ def schedule_application(
             actor="排期Agent",
         )
     else:
+        if interview.meeting_status == "real_failed":
+            write_audit_log(session, actor="HR", action="interview.meeting_replanned", entity_type="interview", entity_id=interview.id)
+            interview.meeting_status, interview.meeting_request = None, None
         token = interview.booking_token
         expired = not interview.booking_token_expires_at or interview.booking_token_expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc)
         if token:
@@ -1643,12 +1656,7 @@ def schedule_application(
             for old_slot in interview.slots:
                 old_slot.status = InterviewSlotStatus.RELEASED
             write_audit_log(session, actor="HR", action="interview.booking_reissued", entity_type="interview", entity_id=interview.id)
-    busy = [
-        {"start_at": item.confirmed_start_at, "end_at": item.confirmed_end_at}
-        for item in session.scalars(
-            select(Interview).where(Interview.confirmed_start_at.is_not(None))
-        ).all()
-    ]
+    busy = meetings.occupied_intervals(session)
     # 其他候选人可能已占用旧时段；检查时段时按最新忙闲重新生成。
     for old_slot in interview.slots:
         if old_slot.status == InterviewSlotStatus.AVAILABLE:
@@ -1713,6 +1721,34 @@ def submit_interview_feedback_api(
         raise HTTPException(422, str(exc)) from exc
 
 
+@app.post("/api/interviews/{interview_id}/meeting/retry")
+def retry_interview_meeting(interview_id: int, session: Session = Depends(get_db)):
+    try:
+        interview = lock_record(session, Interview, interview_id)
+        if interview.meeting_status != "real_failed" or not interview.meeting_request:
+            raise ValueError("只有明确失败的建会记录可以重试；未知结果请先查询核实")
+        slot = session.get(InterviewSlot, interview.meeting_request["slot_id"])
+        if slot is None:
+            raise ValueError("原预约时段不存在，请重新安排")
+        meetings.create_real_booking(session, interview, slot, retry=True)
+    except MeetingError as exc:
+        raise HTTPException(503, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return {"ok": True, "redirect": f"/interviews#interview-{interview_id}"}
+
+
+@app.post("/api/interviews/{interview_id}/meeting/reconcile")
+def reconcile_interview_meeting(interview_id: int, meeting_code: str = Form(""), session: Session = Depends(get_db)):
+    try:
+        meetings.reconcile_booking(session, interview_id, meeting_code=meeting_code)
+    except MeetingError as exc:
+        raise HTTPException(503, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return {"ok": True, "redirect": f"/interviews#interview-{interview_id}"}
+
+
 @app.post("/api/interviews/{interview_id}/send-invite")
 def send_interview_invite_api(
     interview_id: int,
@@ -1724,6 +1760,8 @@ def send_interview_invite_api(
         raise HTTPException(404, "面试记录不存在")
     if not interview.booking_token:
         raise HTTPException(409, "当前面试没有可发送的预约链接")
+    if interview.meeting_status in meetings.PENDING or interview.meeting_status == "real_failed":
+        raise HTTPException(409, "候选人已选择时段，请先处理已有建会记录")
     if interview.status not in {InterviewStatus.DRAFT, InterviewStatus.INVITED} or not interview.booking_token_expires_at or interview.booking_token_expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
         raise HTTPException(409, "预约已确认或链接已过期，请在原轮次重新生成时段")
     candidate = interview.application.candidate
@@ -1737,7 +1775,7 @@ def send_interview_invite_api(
             subject=f"{interview.application.job.title} 面试时间确认",
             content=(
                 f"{candidate.name or '同学'}，你好。\n\n"
-                "请打开以下链接选择一个面试时间。确认后系统会锁定时段并创建 Mock 腾讯会议。\n\n"
+                "请打开以下链接选择一个面试时间。确认后请按预约结果页显示的会议信息参加面试。\n\n"
                 f"{booking_url}\n\n"
                 "如时间不合适，请联系招聘负责人。"
             ),
@@ -1991,6 +2029,9 @@ def booking_page(token: str, request: Request, session: Session = Depends(get_db
         raise HTTPException(404, "预约不存在或已完成")
     if not interview.booking_token_expires_at or interview.booking_token_expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
         raise HTTPException(410, "预约已过期，请联系 HR 在原轮次重签")
+    if interview.meeting_status in meetings.PENDING or interview.meeting_status == "real_failed":
+        return templates.TemplateResponse(request=request, name="booking_success.html",
+            context={"pending": True}, status_code=202)
     return templates.TemplateResponse(
         request=request,
         name="booking.html",
@@ -2025,6 +2066,9 @@ def confirm_booking(
     slot = session.get(InterviewSlot, slot_id)
     if interview is None or slot is None or slot.interview_id != interview.id:
         raise HTTPException(404, "预约时段不存在")
+    if interview.meeting_status in meetings.PENDING or interview.meeting_status == "real_failed":
+        return templates.TemplateResponse(request=request, name="booking_success.html",
+            context={"pending": True}, status_code=202)
     if interview.confirmed_start_at or interview.status not in {InterviewStatus.DRAFT, InterviewStatus.INVITED}:
         raise HTTPException(409, "本轮预约已确认，不能覆盖")
     if not interview.booking_token_expires_at or interview.booking_token_expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
@@ -2033,21 +2077,28 @@ def confirm_booking(
         raise HTTPException(409, "预约时段已过期")
     if slot.status != InterviewSlotStatus.AVAILABLE:
         raise HTTPException(409, "该时段已不可用")
-    confirmed = session.scalars(
-        select(Interview).where(
-            Interview.id != interview.id,
-            Interview.confirmed_start_at.is_not(None),
-        )
-    ).all()
-    for other in confirmed:
+    for other in meetings.occupied_intervals(session, exclude_id=interview.id):
         if intervals_conflict(
             slot.start_at,
             slot.end_at,
-            other.confirmed_start_at,
-            other.confirmed_end_at,
+            other["start_at"],
+            other["end_at"],
             buffer_minutes=DEFAULT_BUFFER_MINUTES,
         ):
             raise HTTPException(409, "该时段刚被占用，请重新选择")
+
+    provider = get_setting("MEETING_PROVIDER", "mock")
+    if provider == "tencent_mcp":
+        try:
+            meetings.create_real_booking(session, interview, slot)
+        except MeetingError as exc:
+            raise HTTPException(503, str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+        return templates.TemplateResponse(request=request, name="booking_success.html",
+            context={"meeting_url": interview.meeting_url})
+    if provider != "mock":
+        raise HTTPException(503, "会议提供方配置无效，请联系管理员")
 
     try:
         meeting = create_mock_tencent_meeting(
@@ -2067,37 +2118,7 @@ def confirm_booking(
         session.commit()
         raise HTTPException(503, "Mock 会议创建失败，预约尚未确认，请稍后使用本链接重试") from exc
 
-    for item in interview.slots:
-        item.status = (
-            InterviewSlotStatus.CONFIRMED
-            if item.id == slot.id
-            else InterviewSlotStatus.RELEASED
-        )
-    interview.confirmed_start_at = slot.start_at
-    interview.confirmed_end_at = slot.end_at
-    interview.status = InterviewStatus.CONFIRMED
-    interview.meeting_url = meeting_url
-    interview.meeting_status = "mock_created"
-    interview.calendar_status = "demo_created"
-    interview.booking_token = None
-    if interview.application.status == ApplicationStatus.SCHEDULING:
-        transition_application(
-            session,
-            interview.application_id,
-            ApplicationStatus.INTERVIEW_CONFIRMED,
-            actor="候选人预约",
-        )
-    write_audit_log(
-        session,
-        actor="候选人",
-        action="interview.confirmed",
-        entity_type="interview",
-        entity_id=interview.id,
-        after_data={
-            "start_at": slot.start_at.isoformat(),
-            "meeting_mode": "mock",
-        },
-    )
+    meetings.complete_booking(session, interview, slot, meeting_url, mode="mock")
     session.commit()
     return templates.TemplateResponse(
         request=request,

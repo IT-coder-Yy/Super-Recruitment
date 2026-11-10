@@ -134,7 +134,7 @@
 
         <section class="tab-panel" data-tab-panel="evaluation">
           {% for e in evaluation_history if current and e.application_id == current.id %}
-          <details class="technical-details"><summary>评估 #{{ e.id }} · {{ e.model }} · {{ e.total_score }} 分 · {{ '已过期' if e.is_stale else '已保存' }} · {{ e.created_at }}</summary><p>{{ e.reason }}</p><pre>{{ e.input_snapshot|default({'说明':'历史输入版本未记录'},true)|tojson(indent=2) }}</pre></details>
+          <details class="technical-details"><summary>评估 #{{ e.id }} · {{ e.model }} · 规则 {{ e.evaluation_version }} · {{ e.total_score }} 分 · {{ '已过期' if e.is_stale else '已保存' }} · {{ e.created_at }}</summary><p>{{ e.reason }}</p><pre>{{ e.input_snapshot|default({'说明':'历史输入版本未记录'},true)|tojson(indent=2) }}</pre></details>
           {% endfor %}
           {% if current and current.dimensions %}
           <div class="stack">
@@ -157,9 +157,9 @@
                   {% for item in current.dimensions %}
                   <tr>
                     <td>{{ item.label or item.name }}</td>
-                    <td><strong>{{ item.score|round(0)|int }}</strong></td>
+                    <td><strong>{{ item.score|round(0)|int if item.weight else '不计分' }}</strong>{% if item.weight %}<small>有效权重 {{ '%.2f'|format(item.weight * 100) }}%</small>{% endif %}</td>
                     <td>{{ item.jd_requirement or '未提供' }}</td>
-                    <td>{{ item.resume_evidence or '未找到明确证据' }}{% for ref in item.references|default([]) %}<small>{{ ref.id }}：{{ ref.quote }}</small>{% endfor %}</td>
+                    <td>{{ item.resume_evidence or '未找到明确证据' }}{% for ref in item.references|default([]) %}<small>{{ ref.id }}：{{ ref.quote }}</small>{% endfor %}{% if item.criteria %}<details><summary>逐项得分与待核实内容</summary>{% for criterion in item.criteria %}<p>{{ criterion.requirement }}：{{ criterion.score }}分；{{ criterion.missing_or_conflicting|join('；') }}</p>{% endfor %}</details>{% endif %}</td>
                     <td>{{ ((item.confidence or 0) * 100)|round(0)|int }}%</td>
                   </tr>
                   {% endfor %}

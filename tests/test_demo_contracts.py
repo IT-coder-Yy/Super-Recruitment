@@ -799,6 +799,35 @@ def test_online_evidence_references_are_validated_and_persisted(env, monkeypatch
         assert app.status == ApplicationStatus.OFFER_PENDING
 
 
+def test_scoring_rules_v2_render_zero_weight_and_criteria_without_hiring_decision(env):
+    from app.ai.prompts import EVALUATION_VERSION
+    client, _, factory = env
+    with factory() as session:
+        app = application(session, ApplicationStatus.OFFER_PENDING)
+        before = app.status
+        result = evaluate_application_record(session, app)
+        evaluation = session.get(Evaluation, result['evaluation_id'])
+        assert evaluation.evaluation_version == EVALUATION_VERSION
+        assert evaluation.scores[-1]['weight'] == 0
+        assert app.status == before
+        application_id, candidate_id = app.id, app.candidate_id
+    for url in [f'/evaluations?application_id={application_id}', f'/candidates/{candidate_id}?application_id={application_id}']:
+        response = client.get(url)
+        assert response.status_code == 200
+        assert '不计分' in response.text and '逐项得分与待核实内容' in response.text
+        assert EVALUATION_VERSION in response.text
+    with factory() as session:
+        old = session.get(Evaluation, result['evaluation_id'])
+        old.evaluation_version = '2.0-r1-r5'
+        previous_score = old.total_score
+        session.commit()
+    response = client.get(f'/evaluations?application_id={application_id}')
+    assert '评分规则已更新，请重评' in response.text
+    with factory() as session:
+        old = session.get(Evaluation, result['evaluation_id'])
+        assert old.evaluation_version == '2.0-r1-r5' and old.total_score == previous_score
+
+
 def test_unknown_offer_delivery_verified_after_expiry_never_resends(env, monkeypatch):
     client, headers, factory = env
     with factory() as session:

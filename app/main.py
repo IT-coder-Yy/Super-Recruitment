@@ -35,6 +35,7 @@ reload_env(override=False)
 
 from app.adapters.meeting import create_mock_tencent_meeting
 from app.ai.service import AIService
+from app.ai.prompts import EVALUATION_VERSION
 from app.db import SessionLocal, get_db, init_db, session_scope
 from app.models import (
     Application,
@@ -320,7 +321,8 @@ def _application_row(application: Application) -> dict[str, Any]:
         "channel": application.channel or "未知",
         "score": evaluation.total_score if evaluation else None,
         "evaluation_id": evaluation.id if evaluation else None,
-        "evaluation_stale": evaluation.is_stale if evaluation else False,
+        "evaluation_stale": (evaluation.is_stale or evaluation.evaluation_version != EVALUATION_VERSION) if evaluation else False,
+        "evaluation_version": evaluation.evaluation_version if evaluation else None,
         "evaluation_attempt": {"id": attempt.id, "status": attempt.status, "error": attempt.error} if attempt else None,
         "workflow_revision": (application.extra_data or {}).get("workflow_revision", 0),
         "exam_decisions": (application.extra_data or {}).get("exams", {}),

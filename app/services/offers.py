@@ -61,6 +61,9 @@ def submit_interview_feedback(
         raise ValueError("本轮已有反馈，不能覆盖旧结论")
     if interview.status != InterviewStatus.CONFIRMED:
         raise ValueError("请先完成本轮面试预约")
+    from app.services.meetings import CHANGE_PENDING
+    if interview.meeting_status in CHANGE_PENDING:
+        raise ValueError("请先核实会议变更，再提交面试反馈")
     actor = current_actor.get() or actor
     application = interview.application
     interview.feedback = {

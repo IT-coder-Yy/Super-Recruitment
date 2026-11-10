@@ -23,6 +23,9 @@ def recover_inflight(session):
     for item in session.scalars(select(Interview).where(Interview.meeting_status == "real_creating")):
         item.meeting_status = "real_unknown"
         write_audit_log(session, actor="系统恢复", action="interview.meeting_interrupted", entity_type="interview", entity_id=item.id)
+    for item in session.scalars(select(Interview).where(Interview.meeting_status.in_(["real_updating", "real_cancelling"]))):
+        item.meeting_status = "real_update_unknown" if item.meeting_status == "real_updating" else "real_cancel_unknown"
+        write_audit_log(session, actor="系统恢复", action="interview.meeting_change_interrupted", entity_type="interview", entity_id=item.id)
     for item in session.scalars(select(Notification).where(Notification.status == NotificationStatus.SENDING)):
         item.status, item.error_message = NotificationStatus.UNKNOWN, "上次发送中断，需人工核实送达后才能重试"
         write_audit_log(session, actor="系统恢复", action="notification.interrupted", entity_type="notification", entity_id=item.id)

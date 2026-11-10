@@ -1749,6 +1749,20 @@ def reconcile_interview_meeting(interview_id: int, meeting_code: str = Form(""),
     return {"ok": True, "redirect": f"/interviews#interview-{interview_id}"}
 
 
+@app.post("/api/interviews/{interview_id}/meeting/change")
+def change_interview_meeting(interview_id: int, action: str = Form(...), revision: str = Form(...),
+                             reason: str = Form(..., max_length=300), start_at: datetime | None = Form(None),
+                             end_at: datetime | None = Form(None), session: Session = Depends(get_db)):
+    try:
+        meetings.change_booking(session, interview_id, action=action, revision=revision,
+                                reason=reason, start_at=start_at, end_at=end_at)
+    except MeetingError as exc:
+        raise HTTPException(503, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return {"ok": True, "redirect": f"/interviews#interview-{interview_id}"}
+
+
 @app.post("/api/interviews/{interview_id}/send-invite")
 def send_interview_invite_api(
     interview_id: int,

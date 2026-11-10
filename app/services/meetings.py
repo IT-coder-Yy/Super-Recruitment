@@ -15,7 +15,8 @@ from app.workbench import appointment_time
 
 
 CREATION_PENDING = {"real_creating", "real_unknown"}
-PENDING = CREATION_PENDING
+CHANGE_PENDING = {"real_updating", "real_update_unknown", "real_cancelling", "real_cancel_unknown"}
+PENDING = CREATION_PENDING | CHANGE_PENDING
 
 
 def occupied_intervals(session: Session, *, exclude_id: int | None = None) -> list[dict]:
@@ -31,6 +32,10 @@ def occupied_intervals(session: Session, *, exclude_id: int | None = None) -> li
         elif item.meeting_request:
             intervals.append({"start_at": datetime.fromisoformat(item.meeting_request["start_time"]),
                               "end_at": datetime.fromisoformat(item.meeting_request["end_time"])})
+        change = (item.meeting_request or {}).get("change", {})
+        if item.meeting_status in CHANGE_PENDING and change.get("action") == "update":
+            intervals.append({"start_at": datetime.fromisoformat(change["start_time"]),
+                              "end_at": datetime.fromisoformat(change["end_time"])})
     return intervals
 
 
@@ -139,6 +144,8 @@ def _accept_result(session, interview_id, snapshot, result, *, remember_id=False
 
 def reconcile_booking(session: Session, interview_id: int, *, meeting_code: str = ""):
     interview = lock_record(session, Interview, interview_id)
+    if interview.meeting_status in CHANGE_PENDING:
+        return reconcile_change(session, interview)
     if interview.meeting_status == "real_created":
         return interview
     if interview.meeting_status not in PENDING or not interview.meeting_request:
@@ -160,3 +167,125 @@ def reconcile_booking(session: Session, interview_id: int, *, meeting_code: str 
         session.commit()
         raise MeetingError("查询未确认已有会议，保留占用；请核实，不会自动重建") from None
     return _accept_result(session, interview_id, snapshot, result)
+
+
+def change_booking(session: Session, interview_id: int, *, action: str, revision: str,
+                   reason: str, start_at: datetime | None = None, end_at: datetime | None = None):
+    """HR显式改期/取消；持久化操作版本，重复表单不能再次发出写请求。"""
+    interview = lock_record(session, Interview, interview_id)
+    snapshot = dict(interview.meeting_request or {})
+    if (interview.status != InterviewStatus.CONFIRMED or interview.feedback
+            or interview.application.status != ApplicationStatus.INTERVIEW_CONFIRMED
+            or interview.meeting_status != "real_created" or not interview.meeting_id
+            or not revision or revision != snapshot.get("revision", snapshot.get("attempt_id"))):
+        raise ValueError("会议状态或操作版本已变化，请刷新；结果未知时只能查询核实")
+    if action not in {"update", "cancel"} or not reason.strip():
+        raise ValueError("请选择改期或取消，并填写原因")
+    if appointment_time(interview.confirmed_start_at) <= datetime.now(timezone.utc):
+        raise ValueError("已到开始时间的会议不能在此改期或取消，请在腾讯会议核实")
+    change = {"id": uuid4().hex, "action": action, "reason": reason.strip()[:300]}
+    if action == "update":
+        if start_at is None or end_at is None:
+            raise ValueError("改期须填写完整起止时间")
+        start, end = appointment_time(start_at), appointment_time(end_at)
+        if start <= datetime.now(timezone.utc) or end <= start:
+            raise ValueError("改期须为未来时段，结束时间须晚于开始时间")
+        if start == appointment_time(interview.confirmed_start_at) and end == appointment_time(interview.confirmed_end_at):
+            raise ValueError("新时间与原安排相同，无需改期")
+        for busy in occupied_intervals(session, exclude_id=interview.id):
+            if intervals_conflict(start, end, busy["start_at"], busy["end_at"], buffer_minutes=DEFAULT_BUFFER_MINUTES):
+                raise ValueError("新时段已被占用，请重新选择")
+        change.update(start_time=start.isoformat(), end_time=end.isoformat())
+    adapter = TencentMeetingAdapter()
+    if adapter.account_fingerprint != snapshot.get("account_fingerprint"):
+        raise ValueError("会议账号配置已变化，请恢复原配置后操作")
+    interview.meeting_request = {**snapshot, "change": change}
+    interview.meeting_status = "real_updating" if action == "update" else "real_cancelling"
+    meeting_id = interview.meeting_id
+    _audit(session, interview, f"{action}_requested", change=change, previous_revision=revision)
+    session.commit()
+    accepted = False
+    try:
+        if action == "update":
+            result = adapter.update_meeting(meeting_id, change)
+            accepted = True
+            if str(result.get("meeting_id")) != meeting_id:
+                raise MeetingError("改期响应不能确认本场会议")
+            # 官方修改响应只保证ID，不保证新时间；额外查询一次核对，不重试。
+            result = adapter.get_meeting(meeting_id=meeting_id)
+            verified_meeting(result, {**snapshot, **change}, meeting_id)
+        else:
+            result = adapter.cancel_meeting(meeting_id)
+            if result.get("cancelled") is not True:
+                raise MeetingError("取消结果无法确认")
+    except Exception as exc:
+        interview = lock_record(session, Interview, interview_id)
+        current = dict(interview.meeting_request or {})
+        if (current.get("change") or {}).get("id") == change["id"] and interview.meeting_status in CHANGE_PENDING:
+            definite = not accepted and isinstance(exc, MeetingError) and not exc.uncertain
+            interview.meeting_status = "real_created" if definite else f"real_{action}_unknown"
+            if definite:
+                current.pop("change")
+                current["revision"] = change["id"]
+                interview.meeting_request = current
+            _audit(session, interview, f"{action}_failed" if definite else f"{action}_unknown", error_type=type(exc).__name__)
+            session.commit()
+        raise MeetingError("会议变更未完成，请刷新查看；待核实状态不会自动重发") from None
+    return _complete_change(session, interview_id, change, result)
+
+
+def _complete_change(session: Session, interview_id: int, change: dict, result: dict):
+    interview = lock_record(session, Interview, interview_id)
+    snapshot = dict(interview.meeting_request or {})
+    if snapshot.get("revision") == change["id"] and interview.meeting_status not in CHANGE_PENDING:
+        return interview
+    if (snapshot.get("change") or {}).get("id") != change["id"] or interview.meeting_status not in CHANGE_PENDING:
+        raise ValueError("会议变更已被处理，请刷新")
+    if change["action"] == "cancel":
+        interview.status, interview.meeting_status = InterviewStatus.CANCELLED, "real_cancelled"
+        interview.calendar_status, interview.booking_token = "local_cancelled", None
+        for slot in interview.slots:
+            slot.status = InterviewSlotStatus.RELEASED
+        transition_application(session, interview.application_id, ApplicationStatus.INTERVIEW_PENDING,
+                               actor="HR", is_human_action=True, reason=change["reason"])
+    else:
+        _, url = verified_meeting(result, {**snapshot, **change}, interview.meeting_id)
+        # SQLite内沿用北京时间钟面，与已有排期和日历一致。
+        start = appointment_time(datetime.fromisoformat(change["start_time"])).replace(tzinfo=None)
+        end = appointment_time(datetime.fromisoformat(change["end_time"])).replace(tzinfo=None)
+        interview.confirmed_start_at, interview.confirmed_end_at = start, end
+        for slot in interview.slots:
+            if slot.status == InterviewSlotStatus.CONFIRMED:
+                slot.start_at, slot.end_at = start, end
+        interview.meeting_url, interview.meeting_status = url, "real_created"
+        snapshot.update(start_time=change["start_time"], end_time=change["end_time"])
+    snapshot.pop("change")
+    snapshot["revision"] = change["id"]
+    interview.meeting_request = snapshot
+    _audit(session, interview, f"{change['action']}_confirmed", change=change)
+    session.commit()
+    return interview
+
+
+def reconcile_change(session: Session, interview: Interview):
+    snapshot = dict(interview.meeting_request or {})
+    change = dict(snapshot.get("change") or {})
+    adapter = TencentMeetingAdapter()
+    if not change or adapter.account_fingerprint != snapshot.get("account_fingerprint"):
+        raise ValueError("会议操作或账号配置已变化，请恢复原配置后核实")
+    interview_id, meeting_id = interview.id, interview.meeting_id
+    _audit(session, interview, "change_query_requested", change_id=change["id"])
+    session.commit()
+    try:
+        result = adapter.get_meeting(meeting_id=meeting_id)
+        if change["action"] == "cancel":
+            if str(result.get("meeting_id")) != meeting_id or result.get("status") != "MEETING_STATE_CANCELLED":
+                raise MeetingError("尚未确认取消；保留原占用")
+        else:
+            verified_meeting(result, {**snapshot, **change}, meeting_id)
+    except Exception as exc:
+        interview = lock_record(session, Interview, interview_id)
+        _audit(session, interview, "change_query_failed", error_type=type(exc).__name__)
+        session.commit()
+        raise MeetingError("查询未确认变更，保留占用；不会重发改期或取消请求") from None
+    return _complete_change(session, interview_id, change, result)

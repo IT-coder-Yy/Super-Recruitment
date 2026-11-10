@@ -76,7 +76,7 @@ APPLICATION_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] =
         {ApplicationStatus.INTERVIEW_CONFIRMED}
     ),
     ApplicationStatus.INTERVIEW_CONFIRMED: frozenset(
-        {ApplicationStatus.INTERVIEWED}
+        {ApplicationStatus.INTERVIEWED, ApplicationStatus.INTERVIEW_PENDING}
     ),
     ApplicationStatus.INTERVIEWED: frozenset(
         {ApplicationStatus.FEEDBACK_PENDING}

@@ -21,6 +21,32 @@
     {% if interview.application.status.value in ['scheduling','next_round'] and interview.meeting_status not in ['real_creating','real_unknown'] %}<form method="post" action="/api/applications/{{ interview.application.id }}/schedule"><button class="button" type="submit">{{ '安排下一轮' if interview.application.status.value == 'next_round' else '检查时段 / 过期重签' }}</button></form>{% endif %}
     {% if interview.meeting_status == 'real_created' %}
     <p><span class="status status-success">真实会议已创建</span> <a class="button button-sm" href="{{ interview.meeting_url }}" target="_blank" rel="noopener">打开腾讯会议</a></p>
+    {% if interview.status.value == 'confirmed' %}
+    <details class="workflow-disclosure"><summary>改期或取消本次面试</summary><div class="surface-body">
+      <p class="card-subtitle">请先与候选人协商。改期会修改原会议并查询核对，取消会使原会议失效并回到待排期；不会自动发送通知。</p>
+      <form class="inline-form" method="post" action="/api/interviews/{{ interview.id }}/meeting/change">
+        <input type="hidden" name="action" value="update"><input type="hidden" name="revision" value="{{ interview.meeting_request.get('revision', interview.meeting_request.attempt_id) }}">
+        <div class="form-grid">
+          <div class="field"><label for="change-start-{{ interview.id }}">新开始时间（北京时间）</label><input class="input" type="datetime-local" id="change-start-{{ interview.id }}" name="start_at" required></div>
+          <div class="field"><label for="change-end-{{ interview.id }}">新结束时间（北京时间）</label><input class="input" type="datetime-local" id="change-end-{{ interview.id }}" name="end_at" required></div>
+        </div>
+        <div class="field"><label for="change-reason-{{ interview.id }}">改期原因</label><input class="input" id="change-reason-{{ interview.id }}" name="reason" required maxlength="300"></div>
+        <button class="button" type="submit" data-confirm="已与候选人协商新时间？将修改这场真实会议并查询一次，不自动发送通知。">确认改期</button>
+      </form>
+      <form class="inline-form" method="post" action="/api/interviews/{{ interview.id }}/meeting/change">
+        <input type="hidden" name="action" value="cancel"><input type="hidden" name="revision" value="{{ interview.meeting_request.get('revision', interview.meeting_request.attempt_id) }}">
+        <div class="field"><label for="cancel-reason-{{ interview.id }}">取消原因</label><input class="input" id="cancel-reason-{{ interview.id }}" name="reason" required maxlength="300"></div>
+        <button class="button" type="submit" data-confirm="确认取消这场真实会议？原会议将无法加入，候选人回到待排期；不会自动发送通知。">取消本次面试</button>
+      </form>
+    </div></details>
+    {% endif %}
+    {% elif interview.meeting_status in ['real_updating','real_update_unknown','real_cancelling','real_cancel_unknown'] %}
+    <div class="inline-form"><p class="notice notice-warning" role="status">会议{{ '改期' if interview.meeting_request.change.action == 'update' else '取消' }}处理中或结果待核实。已保留相关时段，请先查询；不会重复提交变更。</p>
+      {% if interview.meeting_request.change.action == 'update' %}<p>拟改为：{{ interview.meeting_request.change.start_time }} — {{ interview.meeting_request.change.end_time }}（北京时间）</p>{% endif %}
+      <form method="post" action="/api/interviews/{{ interview.id }}/meeting/reconcile"><button class="button" type="submit">查询并核实变更</button></form>
+    </div>
+    {% elif interview.meeting_status == 'real_cancelled' %}
+    <p class="notice" role="status">本次会议已取消。请从候选人详情重新安排面试，历史记录保留。</p>
     {% elif interview.meeting_status in ['real_creating','real_unknown','real_failed'] %}
     <div class="inline-form">
       <p class="notice notice-warning" role="status">{% if interview.meeting_status == 'real_failed' %}建会明确失败，可以手动重试一次；若时段已过期或被占用，请重新安排。{% else %}建会处理中或结果待核实，所选时段已保留。请在原腾讯会议账号核对下方主题和时间，再查询关联，避免重复建会。{% endif %}</p>
@@ -53,7 +79,7 @@
     {% elif interview.status.value not in ['confirmed', 'completed', 'cancelled'] and interview.meeting_status not in ['real_creating','real_unknown','real_failed'] %}
     <div class="inline-form"><p class="card-subtitle">请先在候选人详情中点击“生成面试时段”，生成后这里会展示候选人预约链接。</p></div>
     {% endif %}
-    {% if interview.status.value == 'confirmed' %}
+    {% if interview.status.value == 'confirmed' and interview.meeting_status not in ['real_updating','real_update_unknown','real_cancelling','real_cancel_unknown'] %}
     <form class="inline-form" method="post" action="/api/interviews/{{ interview.id }}/feedback">
       <div class="form-grid">
         <div class="field"><label for="result-{{ interview.id }}">反馈结论</label><input class="input" id="result-{{ interview.id }}" name="result" value="{{ interview.feedback.result if interview.feedback else '通过' }}" required></div>

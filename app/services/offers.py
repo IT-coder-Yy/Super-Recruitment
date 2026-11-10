@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import secrets
 import smtplib
+import ssl
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from typing import Any
@@ -492,9 +493,10 @@ def send_email_notification(
             use_ssl = smtp_config["SMTP_SSL"].lower() in {"true", "1", "yes"}
             port = int(smtp_config["SMTP_PORT"])
             factory = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-            with factory(smtp_host, port, timeout=10) as smtp:
+            tls_options = {"context": ssl.create_default_context()}
+            with factory(smtp_host, port, timeout=10, **(tls_options if use_ssl else {})) as smtp:
                 if not use_ssl:
-                    smtp.starttls()
+                    smtp.starttls(**tls_options)
                 if smtp_config["SMTP_USERNAME"]:
                     smtp.login(smtp_config["SMTP_USERNAME"], smtp_config["SMTP_PASSWORD"])
                 sending_data = True

@@ -277,13 +277,20 @@ def test_offer_version_reapproval_smtp_failure_retry_and_freeze(env, monkeypatch
 
 @pytest.mark.parametrize("ssl", [True, False])
 def test_smtp_transport_and_uncertain_delivery_recovery(env, monkeypatch, ssl):
+    import ssl as ssl_module
     client, headers, factory = env
     calls = []
+    contexts = []
     class SMTP:
-        def __init__(self, *a, **kw): calls.append("ssl" if ssl else "starttls")
+        def __init__(self, *a, **kw):
+            calls.append("ssl" if ssl else "starttls")
+            if ssl:
+                contexts.append(kw.get("context"))
         def __enter__(self): return self
         def __exit__(self, *a): pass
-        def starttls(self): calls.append("tls")
+        def starttls(self, *, context=None):
+            calls.append("tls")
+            contexts.append(context)
         def login(self, *a): calls.append("login")
         def send_message(self, message):
             calls.append("send")
@@ -298,6 +305,8 @@ def test_smtp_transport_and_uncertain_delivery_recovery(env, monkeypatch, ssl):
         assert sent.status == NotificationStatus.UNKNOWN
         assert send_exam(session, app.id, paper.id, candidate_revision=1).id == sent.id
         assert calls.count("send") == 1 and ("tls" in calls) != ssl
+        assert len(contexts) == 1 and contexts[0] is not None
+        assert contexts[0].check_hostname and contexts[0].verify_mode == ssl_module.CERT_REQUIRED
     result = client.post(f"/api/notifications/{sent.id}/verify", headers=headers, data={"delivered": "true", "note": "联系收件人核实已收到"})
     assert result.status_code == 200
     with factory() as session:

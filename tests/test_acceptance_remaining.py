@@ -310,7 +310,7 @@ def test_exam_failure_restart_retry_disable_and_snapshot(env, monkeypatch, tmp_p
             if outcome == 'failed': raise ConnectionRefusedError('synthetic')
         def __enter__(self): return self
         def __exit__(self, *a): pass
-        def starttls(self): pass
+        def starttls(self, *, context): pass
         def login(self, *a): pass
         def send_message(self, message):
             calls.append(message)
@@ -777,7 +777,7 @@ def test_s04_from_import_model_invite_mail_recovery_and_restart(env, monkeypatch
             if outcome == 'failed': raise ConnectionRefusedError('synthetic')
         def __enter__(self): return self
         def __exit__(self, *a): pass
-        def starttls(self): pass
+        def starttls(self, *, context): pass
         def send_message(self, message):
             calls.append(message['To'])
             if outcome == 'unknown': raise TimeoutError('synthetic DATA timeout')

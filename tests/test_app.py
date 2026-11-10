@@ -634,5 +634,231 @@ def test_settings_never_echoes_plain_api_key(
     assert cleared.json()["provider"] == "mock"
 
 
+@pytest.fixture()
+def smtp_runtime(tmp_path, monkeypatch):
+    for name in app_config.EDITABLE_KEYS:
+        monkeypatch.setenv(name, "mock" if name == "LLM_PROVIDER" else "")
+    monkeypatch.setattr(app_config, "ENV_FILE", tmp_path / "runtime.env")
+    monkeypatch.setattr(app_config, "DATA_DIR", tmp_path)
+    app_config.ensure_runtime_dirs()
+    return app_config.ENV_FILE
+
+
+def _smtp_form(**changes) -> dict:
+    return {
+        "smtp_host": "smtp.example.test", "smtp_port": "465", "smtp_ssl": "true",
+        "smtp_username": "hr@example.test", "smtp_from": "hr@example.test",
+        "smtp_password": "synthetic-smtp-secret", **changes,
+    }
+
+
+def _smtp_user_id() -> int:
+    from sqlalchemy import select
+    from app.models import User
+    with app_db.SessionLocal() as session:
+        return session.scalar(select(User.id).where(User.normalized_username == "existing-test-user"))
+
+
+def test_smtp_settings_save_keep_secret_and_persist(authenticated_client, smtp_runtime):
+    import subprocess
+    import sys
+    from dotenv import dotenv_values
+    from sqlalchemy import func, select
+    from app.models import AuditLog, Notification
+
+    app_config.save_app_setting("WECOM_WEBHOOK_URL", "https://example.test/synthetic-webhook")
+    global_before = smtp_runtime.read_bytes()
+    user_id = _smtp_user_id()
+    personal_file = app_config.user_smtp_file(user_id)
+    headers = _csrf_headers(authenticated_client, "/settings")
+    with app_db.SessionLocal() as session:
+        notification_count = session.scalar(select(func.count(Notification.id)))
+    response = authenticated_client.post("/api/settings/smtp", headers=headers, data=_smtp_form())
+    assert response.status_code == 200, response.text
+    assert response.json()["redirect"].endswith("#mail")
+    assert "synthetic-smtp-secret" not in response.text
+    values = dotenv_values(personal_file)
+    assert {key: values[key] for key in ("SMTP_HOST", "SMTP_PORT", "SMTP_SSL", "SMTP_USERNAME", "SMTP_FROM", "SMTP_PASSWORD")} == {
+        "SMTP_HOST": "smtp.example.test", "SMTP_PORT": "465", "SMTP_SSL": "true",
+        "SMTP_USERNAME": "hr@example.test", "SMTP_FROM": "hr@example.test", "SMTP_PASSWORD": "synthetic-smtp-secret",
+    }
+    response = authenticated_client.post("/api/settings/smtp", headers=headers, data=_smtp_form(
+        smtp_password="", smtp_port="587", smtp_ssl="false", smtp_from="team@example.test",
+    ))
+    assert response.status_code == 200
+    personal = app_config.smtp_settings(user_id)
+    assert personal["SMTP_PASSWORD"] == "synthetic-smtp-secret"
+    assert personal["SMTP_PORT"] == "587"
+    assert personal["SMTP_SSL"] == "false"
+    assert personal["SMTP_FROM"] == "team@example.test"
+    assert app_config.get_setting("SMTP_PASSWORD") == ""
+    assert smtp_runtime.read_bytes() == global_before
+    assert app_config.get_setting("WECOM_WEBHOOK_URL") == "https://example.test/synthetic-webhook"
+    page = authenticated_client.get(response.json()["redirect"])
+    assert "synthetic-smtp-secret" not in page.text
+    assert 'type="password" id="smtp_password"' in page.text
+    assert "team@example.test" in page.text
+    assert "尚未验证连接或收件" in page.text
+    with app_db.SessionLocal() as session:
+        audit = session.scalar(select(AuditLog).where(AuditLog.action == "settings.smtp_updated").order_by(AuditLog.id.desc()))
+        assert audit.after_data == {"smtp_configured": True, "smtp_password_configured": True}
+        assert audit.entity_id == user_id and audit.entity_type == "user"
+        assert "synthetic-smtp-secret" not in str(audit.__dict__)
+        assert session.scalar(select(func.count(Notification.id))) == notification_count
+    # 新进程从账号目录读取配置，不依赖其他请求留下的环境变量。
+    environment = {**os.environ, "APP_DATA_DIR": str(smtp_runtime.parent), "APP_RUNTIME_ENV": str(smtp_runtime), "SMTP_PASSWORD": "stale"}
+    code = f"from app.config import smtp_settings; values=smtp_settings({user_id}); assert values['SMTP_PASSWORD'] == 'synthetic-smtp-secret'; assert values['SMTP_PORT'] == '587'; assert values['SMTP_SSL'] == 'false'"
+    subprocess.run([sys.executable, "-B", "-c", code], env=environment, check=True)
+    response = authenticated_client.post("/api/settings/smtp", headers=headers, data=_smtp_form(smtp_host="", smtp_password=""))
+    assert response.status_code == 200
+    assert app_config.public_integration_settings(user_id)["smtp_configured"] is False
+    assert app_config.smtp_settings(user_id)["SMTP_PASSWORD"] == "synthetic-smtp-secret"
+
+
+@pytest.mark.parametrize("changes", [
+    {"smtp_host": "https://smtp.example.test/path"},
+    {"smtp_port": "0"}, {"smtp_port": "65536"}, {"smtp_port": "invalid"},
+    {"smtp_ssl": "invalid"}, {"smtp_from": "invalid-email"},
+    {"smtp_password": "synthetic\r\nsecret"},
+    {"smtp_host": "other.example.test", "smtp_password": ""},
+    {"smtp_username": "other@example.test", "smtp_password": ""},
+])
+def test_smtp_settings_reject_invalid_without_partial_save(authenticated_client, smtp_runtime, changes):
+    headers = _csrf_headers(authenticated_client, "/settings")
+    assert authenticated_client.post("/api/settings/smtp", headers=headers, data=_smtp_form()).status_code == 200
+    before = smtp_runtime.read_bytes()
+    personal_file = app_config.user_smtp_file(_smtp_user_id())
+    personal_before = personal_file.read_bytes()
+    response = authenticated_client.post("/api/settings/smtp", headers=headers, data=_smtp_form(**changes))
+    assert response.status_code == 422
+    assert smtp_runtime.read_bytes() == before
+    assert personal_file.read_bytes() == personal_before
+    assert "synthetic-smtp-secret" not in response.text
+    assert "synthetic\\r\\nsecret" not in response.text
+
+
+def test_smtp_settings_require_initial_secret_and_csrf(authenticated_client, smtp_runtime):
+    before = smtp_runtime.read_bytes()
+    response = authenticated_client.post("/api/settings/smtp", data=_smtp_form())
+    assert response.status_code == 403
+    headers = _csrf_headers(authenticated_client, "/settings")
+    response = authenticated_client.post("/api/settings/smtp", headers=headers, data=_smtp_form(smtp_password=""))
+    assert response.status_code == 422
+    assert "首次配置" in response.json()["detail"]
+    assert smtp_runtime.read_bytes() == before
+
+
+def test_smtp_settings_require_login(client, smtp_runtime):
+    client.cookies.clear()
+    headers = _csrf_headers(client, "/login")
+    response = client.post("/api/settings/smtp", headers=headers, data=_smtp_form())
+    assert response.status_code == 401
+    assert app_config.get_setting("SMTP_HOST") == ""
+
+
+def test_smtp_deployment_env_overrides_legacy_runtime(smtp_runtime, monkeypatch):
+    root = smtp_runtime.parent / "deployment"
+    root.mkdir()
+    (root / ".env").write_text("SMTP_HOST=smtp.default.test\nSMTP_USERNAME=default@example.test\nSMTP_PASSWORD=synthetic-default\nSMTP_USE_SSL=true\n", encoding="utf-8")
+    smtp_runtime.write_text("SMTP_HOST=smtp.stale.test\nSMTP_PASSWORD=synthetic-stale\nSMTP_SSL=false\nSMTP_PORT=587\nLLM_MODEL=saved-model\n", encoding="utf-8")
+    monkeypatch.setattr(app_config, "ROOT_DIR", root)
+    monkeypatch.delenv("APP_DATA_DIR")
+    for name in app_config.SMTP_KEYS:
+        monkeypatch.delenv(name, raising=False)
+    app_config.reload_env()
+    default = app_config.smtp_settings()
+    assert default["SMTP_HOST"] == "smtp.default.test"
+    assert default["SMTP_PASSWORD"] == "synthetic-default"
+    assert default["SMTP_PORT"] == "465"
+    assert default["SMTP_SSL"] == "true"
+    assert app_config.get_setting("LLM_MODEL") == "saved-model"
+
+
+def test_two_hr_smtp_isolation_sending_and_retry(authenticated_client, smtp_runtime, monkeypatch):
+    import smtplib
+    from sqlalchemy import select
+    from app.models import Application, Candidate, Interview, User
+    from app.services import offers
+    from app.services.auth import current_user_id
+
+    for name, value in {"SMTP_HOST": "smtp.default.test", "SMTP_USERNAME": "default@example.test", "SMTP_PASSWORD": "synthetic-default", "SMTP_FROM": "default@example.test", "SMTP_SSL": "true"}.items():
+        monkeypatch.setenv(name, value)
+    headers_a = _csrf_headers(authenticated_client, "/settings")
+    account_a = _smtp_form(smtp_username="hr-a@example.test", smtp_from="hr-a@example.test", smtp_password="synthetic-a")
+    assert authenticated_client.post("/api/settings/smtp", headers=headers_a, data=account_a).status_code == 200
+    user_a = _smtp_user_id()
+    saved_a = app_config.user_smtp_file(user_a).read_bytes()
+    calls, sent, fail_users = [], [], set()
+    class SMTP:
+        def __init__(self, host, port, **kwargs): self.host = host
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def login(self, username, password):
+            calls.append((username, password))
+            if username in fail_users:
+                raise smtplib.SMTPAuthenticationError(535, b"synthetic authentication failure")
+        def send_message(self, message):
+            sent.append((self.host, message["From"]))
+            return {}
+    monkeypatch.setattr(offers.smtplib, "SMTP_SSL", SMTP)
+    with TestClient(app) as client_b:
+        client_b.post("/register", data={"username": "smtp-other-hr", "password": "synthetic-password", "csrf_token": _csrf_token(client_b, "/register")})
+        login = client_b.post("/login", data={"username": "smtp-other-hr", "password": "synthetic-password", "csrf_token": _csrf_token(client_b, "/login")}, follow_redirects=False)
+        assert login.status_code == 303
+        headers_b = _csrf_headers(client_b, "/settings")
+        page_b = client_b.get("/settings").text
+        assert "hr-a@example.test" not in page_b and "synthetic-a" not in page_b
+        assert "default@example.test" in page_b and "synthetic-default" not in page_b
+        assert client_b.post("/api/settings/smtp", headers=headers_b, data=_smtp_form(smtp_password="")).status_code == 422
+        account_b = _smtp_form(smtp_username="hr-b@example.test", smtp_from="hr-b@example.test", smtp_password="synthetic-b", user_id=str(user_a))
+        assert client_b.post("/api/settings/smtp", headers=headers_b, data=account_b).status_code == 200
+        assert app_config.user_smtp_file(user_a).read_bytes() == saved_a
+        assert "hr-b@example.test" not in authenticated_client.get("/settings").text
+        assert app_config.get_setting("SMTP_PASSWORD") == "synthetic-default"
+        with app_db.SessionLocal() as session:
+            user_b = session.scalar(select(User.id).where(User.normalized_username == "smtp-other-hr"))
+            assert app_config.smtp_settings(user_b)["SMTP_USERNAME"] == "hr-b@example.test"
+            application = session.scalar(select(Application).join(Candidate).where(Candidate.email.is_not(None)))
+            interviews = [Interview(application_id=application.id, round=100 + index,
+                booking_token=f"synthetic-smtp-test-token-{index}", booking_token_expires_at=datetime.now(timezone.utc) + timedelta(days=1)) for index in range(4)]
+            session.add_all(interviews)
+            session.commit()
+            ids = [interview.id for interview in interviews]
+        for active_client, headers, interview_id in [(authenticated_client, headers_a, ids[0]), (client_b, headers_b, ids[1])]:
+            response = active_client.post(f"/api/interviews/{interview_id}/send-invite", headers=headers)
+            assert response.status_code == 200 and response.json()["status"] == "sent", response.text
+        assert sent == [("smtp.example.test", "hr-a@example.test"), ("smtp.example.test", "hr-b@example.test")]
+        assert calls == [("hr-a@example.test", "synthetic-a"), ("hr-b@example.test", "synthetic-b")]
+        assert current_user_id.get() is None
+        # B 清除配置只影响 B，下一次新邮件显式使用部署默认邮箱。
+        assert client_b.post("/api/settings/smtp/reset", headers=headers_b, data={"user_id": user_a}).status_code == 200
+        assert not app_config.user_smtp_file(user_b).exists()
+        assert app_config.user_smtp_file(user_a).read_bytes() == saved_a
+        assert client_b.post(f"/api/interviews/{ids[2]}/send-invite", headers=headers_b).json()["status"] == "sent"
+        assert sent[-1] == ("smtp.default.test", "default@example.test")
+        # 个人认证失败不回退；其他 HR 不能借失败重试使用 A 的授权码。
+        fail_users.add("hr-a@example.test")
+        assert authenticated_client.post(f"/api/interviews/{ids[3]}/send-invite", headers=headers_a).json()["status"] == "failed"
+        before_retry = len(calls)
+        blocked = client_b.post(f"/api/interviews/{ids[3]}/send-invite", headers=headers_b)
+        assert blocked.status_code == 409 and "原发送 HR" in blocked.json()["detail"]
+        assert len(calls) == before_retry and len(sent) == 3
+        fail_users.clear()
+        assert authenticated_client.post(f"/api/interviews/{ids[3]}/send-invite", headers=headers_a).json()["status"] == "sent"
+        assert sent[-1] == ("smtp.example.test", "hr-a@example.test")
+
+
+def test_smtp_ui_resume_rejects_personal_mail(tmp_path):
+    import subprocess
+    import sys
+    (tmp_path / "synthetic-demo.marker").write_text("synthetic-only")
+    (tmp_path / "runtime.env").write_text("LLM_PROVIDER=mock\nSMTP_HOST=\nWECOM_WEBHOOK_URL=\n", encoding="utf-8")
+    personal = tmp_path / "users" / "1" / "smtp.runtime.env"
+    personal.parent.mkdir(parents=True)
+    personal.write_text("SMTP_HOST=smtp.example.test\n", encoding="utf-8")
+    result = subprocess.run([sys.executable, "-X", "utf8", "-B", "scripts/serve_test_demo.py", str(tmp_path), "--resume"], capture_output=True, encoding="utf-8", timeout=10)
+    assert result.returncode == 2 and "个人 SMTP 邮箱" in result.stderr
+
+
 def teardown_module() -> None:
     app_db.engine.dispose()

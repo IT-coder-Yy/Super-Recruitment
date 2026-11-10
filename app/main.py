@@ -27,6 +27,9 @@ from app.config import (
     reload_env,
     save_app_setting,
     save_llm_settings,
+    save_smtp_settings,
+    smtp_settings,
+    user_smtp_file,
     public_url,
 )
 
@@ -63,7 +66,7 @@ from app.models import (
 from app.schemas import EvaluationCreate, EvaluationDimension, InterviewCreate, InterviewSlotCreate
 from app.seed import seed_database
 from app.workbench import appointment_time, build_workbench_context
-from app.services.auth import current_actor, hash_password, normalize_username, verify_password
+from app.services.auth import current_actor, current_user_id, hash_password, normalize_username, verify_password
 from app.services.candidates import normalize_name, normalize_phone, revise_candidate
 from app.services.exporter import export_recruitment_csv, export_recruitment_xlsx
 from app.services.imports import (
@@ -245,10 +248,12 @@ async def require_authentication(request: Request, call_next):
         "username": user.username,
     }
     actor_token = current_actor.set(f"{user.id}:{user.username}")
+    user_token = current_user_id.set(user.id)
     try:
         return await call_next(request)
     finally:
         current_actor.reset(actor_token)
+        current_user_id.reset(user_token)
 
 
 app.add_middleware(
@@ -1148,7 +1153,7 @@ def settings_page(request: Request, session: Session = Depends(get_db)):
         "settings.html",
         "settings",
         settings=public_llm_settings(),
-        integrations=public_integration_settings(),
+        integrations=public_integration_settings(request.state.current_user["id"]),
     )
 
 
@@ -1196,6 +1201,42 @@ def save_wecom_settings_page(
     )
     session.commit()
     return RedirectResponse("/settings?wecom_saved=1#wecom", status_code=303)
+
+
+@app.post("/api/settings/smtp")
+def save_smtp_settings_api(
+    request: Request,
+    smtp_host: str = Form(""),
+    smtp_port: int = Form(..., ge=1, le=65535),
+    smtp_ssl: bool = Form(...),
+    smtp_username: str = Form(""),
+    smtp_password: str = Form(""),
+    smtp_from: str = Form(""),
+    session: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        save_smtp_settings(
+            user_id=request.state.current_user["id"], host=smtp_host, port=smtp_port, use_ssl=smtp_ssl,
+            username=smtp_username, password=smtp_password, from_address=smtp_from,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    write_audit_log(
+        session, actor="HR", action="settings.smtp_updated", entity_type="user", entity_id=request.state.current_user["id"],
+        after_data={"smtp_configured": bool(smtp_host.strip()), "smtp_password_configured": bool(smtp_settings(request.state.current_user["id"])["SMTP_PASSWORD"])},
+    )
+    session.commit()
+    return {"ok": True, "message": "我的邮箱配置已保存，尚未验证连接或收件。", "redirect": "/settings?smtp_saved=1#mail"}
+
+
+@app.post("/api/settings/smtp/reset")
+def reset_smtp_settings_api(request: Request, session: Session = Depends(get_db)) -> dict[str, Any]:
+    user_id = request.state.current_user["id"]
+    user_smtp_file(user_id).unlink(missing_ok=True)
+    write_audit_log(session, actor="HR", action="settings.smtp_reset", entity_type="user", entity_id=user_id,
+                    after_data={"smtp_source": "default"})
+    session.commit()
+    return {"ok": True, "message": "已清除我的邮箱配置，后续使用部署默认配置。", "redirect": "/settings#mail"}
 
 
 @app.get("/api/settings/llm")
@@ -1689,20 +1730,24 @@ def send_interview_invite_api(
     if not candidate.email:
         raise HTTPException(422, "候选人邮箱缺失，请先在候选人详情补充邮箱")
     booking_url = public_url(f"/schedule/{interview.booking_token}")
-    result = send_email_notification(
-        session,
-        recipient=candidate.email,
-        subject=f"{interview.application.job.title} 面试时间确认",
-        content=(
-            f"{candidate.name or '同学'}，你好。\n\n"
-            "请打开以下链接选择一个面试时间。确认后系统会锁定时段并创建 Mock 腾讯会议。\n\n"
-            f"{booking_url}\n\n"
-            "如时间不合适，请联系招聘负责人。"
-        ),
-        target_type="interview",
-        target_id=interview.id,
-        template="interview_invite_" + interview.booking_token[-24:],
-    )
+    try:
+        result = send_email_notification(
+            session,
+            recipient=candidate.email,
+            subject=f"{interview.application.job.title} 面试时间确认",
+            content=(
+                f"{candidate.name or '同学'}，你好。\n\n"
+                "请打开以下链接选择一个面试时间。确认后系统会锁定时段并创建 Mock 腾讯会议。\n\n"
+                f"{booking_url}\n\n"
+                "如时间不合适，请联系招聘负责人。"
+            ),
+            target_type="interview",
+            target_id=interview.id,
+            template="interview_invite_" + interview.booking_token[-24:],
+        )
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
     notify_internal(
         session,
         title="面试预约链接已生成",

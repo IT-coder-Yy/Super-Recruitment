@@ -663,6 +663,7 @@ def test_exam_same_resource_definite_failure_retry(env, monkeypatch, kind):
     rid = paper(client, headers, record.job_id, kind)
     endpoint = f'/api/applications/{record.id}/exams/send'
     monkeypatch.setenv('SMTP_HOST', 'smtp.example.test')
+    monkeypatch.setenv('SMTP_SSL', 'false')
     monkeypatch.setattr(offers.smtplib, 'SMTP', lambda *a, **k: (_ for _ in ()).throw(ConnectionRefusedError('synthetic')))
     first = post(client, headers, endpoint, resource_id=rid, candidate_revision=1)
     assert first['status'] == 'failed'

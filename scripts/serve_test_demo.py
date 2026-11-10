@@ -18,6 +18,8 @@ if args.resume:
     saved = dotenv_values(root/"runtime.env")
     if saved.get("LLM_PROVIDER") != "mock" or saved.get("SMTP_HOST") or saved.get("WECOM_WEBHOOK_URL"):
         parser.error("验收目录必须保持 Mock，禁止外呼")
+    if any(dotenv_values(path).get("SMTP_HOST") for path in (root/"users").glob("*/smtp.runtime.env")):
+        parser.error("验收目录包含个人 SMTP 邮箱，禁止恢复为 Mock 验收实例")
 else:
     root.mkdir(parents=True, exist_ok=False)
     marker.write_text("synthetic-only")

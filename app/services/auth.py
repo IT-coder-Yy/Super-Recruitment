@@ -7,9 +7,7 @@ import os
 from contextvars import ContextVar
 
 current_actor: ContextVar[str | None] = ContextVar("current_actor", default=None)
-from contextvars import ContextVar
-
-current_actor: ContextVar[str | None] = ContextVar("current_actor", default=None)
+current_user_id: ContextVar[int | None] = ContextVar("current_user_id", default=None)
 
 
 SCRYPT_N = 2**14

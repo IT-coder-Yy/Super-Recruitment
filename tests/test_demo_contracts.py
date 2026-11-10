@@ -259,6 +259,7 @@ def test_offer_version_reapproval_smtp_failure_retry_and_freeze(env, monkeypatch
         offers.approve_offer(session, offer.id, version=2)
         session.commit()
         monkeypatch.setenv("SMTP_HOST", "smtp.example.test")
+        monkeypatch.setenv("SMTP_SSL", "false")
         monkeypatch.setattr(offers.smtplib, "SMTP", lambda *a, **kw: (_ for _ in ()).throw(ConnectionRefusedError()))
         offers.send_offer(session, offer.id); session.commit()
         assert offer.status == OfferStatus.APPROVED and offer.application.status == ApplicationStatus.OFFER_PENDING
@@ -382,6 +383,9 @@ def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
         connection.execute("DELETE FROM application_sources")
     (tmp_path/"uploads").mkdir(); (tmp_path/"uploads"/"resume.txt").write_text("虚构原文", encoding="utf-8")
     (tmp_path/"runtime.env").write_text("LLM_PROVIDER=mock", encoding="utf-8")
+    personal_mail = tmp_path / "users" / "1" / "smtp.runtime.env"
+    personal_mail.parent.mkdir(parents=True)
+    personal_mail.write_text("SMTP_PASSWORD='synthetic-backup-secret'\n", encoding="utf-8")
     engine = create_db_engine(f"sqlite:///{database.as_posix()}")
     init_db(engine); init_db(engine)
     backups = list((tmp_path/"backups").glob("*.db"))
@@ -400,6 +404,7 @@ def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("SELECT file_path FROM exam_resources").fetchone()[0] == str(restored.parent/"uploads"/"resume.txt")
     assert (restored.parent/"uploads"/"resume.txt").read_text(encoding="utf-8") == "虚构原文"
+    assert (restored.parent/"users"/"1"/"smtp.runtime.env").read_bytes() == personal_mail.read_bytes()
     engine.dispose()
 
     # 固定迁移前基线，不能随 HEAD 漂移成“新版自动重迁移后读取成功”。
@@ -549,6 +554,7 @@ def test_exam_wrong_job_and_email_revision_retry_are_rejected(env, monkeypatch):
             send_exam(session, other.id, paper.id, candidate_revision=1)
         session.rollback()
         monkeypatch.setenv("SMTP_HOST", "smtp.example.test")
+        monkeypatch.setenv("SMTP_SSL", "false")
         monkeypatch.setattr(offers.smtplib, "SMTP", lambda *a, **kw: (_ for _ in ()).throw(ConnectionRefusedError()))
         send_exam(session, app.id, paper.id, candidate_revision=1)
         revise_candidate(session, app.candidate, {"email": "corrected@example.test"}, version=1)

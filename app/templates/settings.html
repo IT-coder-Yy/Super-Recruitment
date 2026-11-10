@@ -29,11 +29,30 @@
       </div>
     </section>
 
-    <section class="work-surface settings-section" id="mail"><header class="surface-header"><div><h2 class="surface-title">邮件</h2><p class="card-subtitle">Offer 邮件和候选人外部通知</p></div><span class="status {% if integrations.smtp_configured %}status-success{% else %}status-warning{% endif %}">{% if integrations.smtp_configured %}SMTP 已配置{% else %}Mock 邮件{% endif %}</span></header><div class="surface-body"><div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>首次启动可从环境变量导入 SMTP_HOST、SMTP_PORT、SMTP_SSL、SMTP_USERNAME、SMTP_PASSWORD、SMTP_FROM；之后统一读取数据目录中的 runtime.env，修改后重启。未配置时测评、笔试、预约和 Offer 均记录为 Mock 邮件。</div></div></section>
+    <section class="work-surface settings-section" id="mail">
+      <header class="surface-header"><div><h2 class="surface-title">我的发件邮箱</h2><p class="card-subtitle">仅用于 {{ current_user.username }} 发起的测评、笔试、面试邀约和 Offer 邮件</p></div><span class="status {% if integrations.smtp_configured %}status-success{% else %}status-warning{% endif %}">{% if integrations.smtp_source == 'personal' %}我的配置{% else %}部署默认{% endif %} · {% if integrations.smtp_configured %}SMTP{% else %}Mock{% endif %}</span></header>
+      <div class="surface-body">
+        {% if request.query_params.get('smtp_saved') == '1' %}<p class="notice" role="status">我的邮箱配置已保存，尚未验证连接或收件。</p>{% endif %}
+        {% if integrations.smtp_source == 'default' %}<p class="notice">尚未设置个人邮箱，当前使用部署默认{% if integrations.smtp_configured %}邮箱：{{ integrations.smtp_effective_from or '发件地址未配置' }}{% else %}配置（Mock，不实际发送）{% endif %}。下方可填写自己的邮箱。</p>{% endif %}
+        <form method="post" action="/api/settings/smtp" data-unsaved-warning>
+          <div class="form-grid" style="align-items:start">
+            <div class="field"><label for="smtp_host">SMTP 服务器</label><input class="input" id="smtp_host" name="smtp_host" value="{{ integrations.smtp_host }}" placeholder="smtp.qq.com" aria-describedby="smtp-mode-help"><small class="muted" id="smtp-mode-help">留空使用 Mock；填写并保存后，后续邮件操作使用此服务器。</small></div>
+            <div class="field"><label for="smtp_port">端口</label><input class="input" type="number" id="smtp_port" name="smtp_port" value="{{ integrations.smtp_port }}" min="1" max="65535" required></div>
+            <div class="field"><label for="smtp_ssl">连接加密</label><select class="select" id="smtp_ssl" name="smtp_ssl"><option value="true" {% if integrations.smtp_ssl %}selected{% endif %}>SSL/TLS（QQ 邮箱选择此项，端口 465）</option><option value="false" {% if not integrations.smtp_ssl %}selected{% endif %}>STARTTLS（通常使用端口 587）</option></select></div>
+            <div class="field"><label for="smtp_username">邮箱账号</label><input class="input" id="smtp_username" name="smtp_username" value="{{ integrations.smtp_username }}" placeholder="你的完整 QQ 邮箱地址" autocomplete="off"></div>
+            <div class="field"><label for="smtp_from">发件邮箱</label><input class="input" type="email" id="smtp_from" name="smtp_from" value="{{ integrations.smtp_from }}" placeholder="与 QQ 邮箱账号一致；留空沿用账号"></div>
+            <div class="field"><label for="smtp_password">SMTP 授权码 / 密码</label><input class="input" type="password" id="smtp_password" name="smtp_password" autocomplete="new-password" placeholder="{% if integrations.smtp_password_configured %}已保存；留空保留原值{% else %}QQ 邮箱填写 SMTP 授权码{% endif %}" aria-describedby="smtp-password-help"><small class="muted" id="smtp-password-help">QQ 邮箱填写授权码。保存后不回显；更换服务器或账号时需重填。</small></div>
+          </div>
+          <p class="notice">保存后仅对当前 HR 生效，不会覆盖其他 HR 或部署默认邮箱，也不会自动发信。个人邮箱连接失败时直接报错，不切换发件人。</p>
+          <div class="form-actions"><button class="button button-primary" type="submit">保存我的邮箱</button></div>
+        </form>
+        {% if integrations.smtp_source == 'personal' %}<form method="post" action="/api/settings/smtp/reset"><div class="form-actions"><button class="button" type="submit" data-confirm="清除当前账号的个人邮箱配置，改用部署默认邮箱？">清除个人配置，使用部署默认</button></div></form>{% endif %}
+      </div>
+    </section>
     {% for id,title,description,status in [('meeting','腾讯会议','当前使用 Mock 适配器','Mock 可用'),('collectors','采集器','模拟平台可用，正式 API / RPA 需授权','部分可用')] %}
     <section class="work-surface settings-section" id="{{ id }}"><header class="surface-header"><div><h2 class="surface-title">{{ title }}</h2><p class="card-subtitle">{{ description }}</p></div><span class="status status-warning">{{ status }}</span></header><div class="surface-body"><p class="muted">{% if id == 'meeting' %}候选人确认预约后，系统创建 Mock 会议记录。真实会议服务与企业日历尚未接入。{% else %}可上传本地简历或采集模拟平台数据；接入真实平台前需获得授权。{% endif %}</p><a class="button button-sm" href="{{ '/interviews' if id == 'meeting' else '/import' }}">{{ '查看面试安排' if id == 'meeting' else '前往数据采集' }}</a></div></section>
     {% endfor %}
-    <section class="work-surface settings-section" id="security"><header class="surface-header"><h2 class="surface-title">安全边界</h2></header><div class="surface-body stack-sm"><div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>API Key、Webhook 和 SMTP 密钥保存在数据目录的 runtime.env，请限制访问权限。运行日志不输出完整密钥；候选人资料、发送快照和操作审计仅供登录 HR 核对。</div><div class="notice notice-warning"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>处理真实候选人数据前，需要确认模型供应商、邮件和企业微信的数据处理条款。</div></div></section>
+    <section class="work-surface settings-section" id="security"><header class="surface-header"><h2 class="surface-title">安全边界</h2></header><div class="surface-body stack-sm"><div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>模型和内部群配置由整个部署共用；个人邮箱按登录账号隔离保存。授权码不回显，请限制服务器配置目录和备份的访问权限。运行日志不输出完整密钥；候选人资料、发送快照和操作审计仅供登录 HR 核对。</div><div class="notice notice-warning"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>处理真实候选人数据前，需要确认模型供应商、邮件和企业微信的数据处理条款。</div></div></section>
   </div>
 </div>
 {% endblock %}

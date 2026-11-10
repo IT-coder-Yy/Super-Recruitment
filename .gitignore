@@ -25,6 +25,7 @@ data/*.sqlite*
 data/exports/
 data/uploads/
 data/backups/
+data/users/
 
 # === 测试覆盖率 ===
 .coverage

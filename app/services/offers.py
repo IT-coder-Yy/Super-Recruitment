@@ -11,8 +11,8 @@ from sqlalchemy import desc, select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.notifications import send_wecom_notification
-from app.config import get_setting
-from app.services.auth import current_actor
+from app.config import smtp_settings
+from app.services.auth import current_actor, current_user_id
 from app.models import (
     Application,
     ApplicationStatus,
@@ -461,31 +461,42 @@ def send_email_notification(
     ).order_by(Notification.id.desc())) if target_id is not None else None
     if previous and previous.status != NotificationStatus.FAILED:
         return previous
+    smtp_config = smtp_settings(current_user_id.get())
+    sender = {
+        "smtp_source": smtp_config["source"],
+        "smtp_owner_id": current_user_id.get() if smtp_config["source"] == "personal" else None,
+        "smtp_from": smtp_config["SMTP_FROM"], "smtp_username": smtp_config["SMTP_USERNAME"],
+    }
+    if previous and "smtp_source" in (previous.provider_response or {}) and any(
+        previous.provider_response.get(key) != value for key, value in sender.items()
+    ):
+        raise ValueError("原发送邮箱与当前账号配置不同；请由原发送 HR 使用原邮箱重试，不能自动更换发件人")
     if previous:
         recipient, subject, content = previous.recipient, previous.subject, previous.content
     notification = Notification(channel="email", recipient=recipient, subject=subject, content=content,
-        target_type=target_type, target_id=target_id, template=template, status=NotificationStatus.SENDING)
+        target_type=target_type, target_id=target_id, template=template, status=NotificationStatus.SENDING,
+        provider_response=sender)
     session.add(notification)
     session.commit()
-    smtp_host = get_setting("SMTP_HOST").strip()
+    smtp_host = smtp_config["SMTP_HOST"].strip()
     notification.status = NotificationStatus.MOCKED
-    notification.provider_response = {"mode": "mock", "reason": "SMTP 未配置"}
+    notification.provider_response = {**sender, "mode": "mock", "reason": "SMTP 未配置"}
     if smtp_host:
         sending_data, accepted = False, False
         try:
             message = EmailMessage()
             message["Subject"] = subject
-            message["From"] = get_setting("SMTP_FROM") or get_setting("SMTP_USERNAME")
+            message["From"] = smtp_config["SMTP_FROM"]
             message["To"] = recipient
             message.set_content(content)
-            use_ssl = (get_setting("SMTP_SSL") or get_setting("SMTP_USE_SSL", "false")).lower() in {"true", "1", "yes"}
-            port = int(get_setting("SMTP_PORT") or ("465" if use_ssl else "587"))
+            use_ssl = smtp_config["SMTP_SSL"].lower() in {"true", "1", "yes"}
+            port = int(smtp_config["SMTP_PORT"])
             factory = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
             with factory(smtp_host, port, timeout=10) as smtp:
                 if not use_ssl:
                     smtp.starttls()
-                if get_setting("SMTP_USERNAME"):
-                    smtp.login(get_setting("SMTP_USERNAME"), get_setting("SMTP_PASSWORD"))
+                if smtp_config["SMTP_USERNAME"]:
+                    smtp.login(smtp_config["SMTP_USERNAME"], smtp_config["SMTP_PASSWORD"])
                 sending_data = True
                 refused = smtp.send_message(message)
                 if refused:
@@ -497,7 +508,7 @@ def send_email_notification(
             notification.status = NotificationStatus.SENT if accepted else (
                 NotificationStatus.UNKNOWN if sending_data and not definitive else NotificationStatus.FAILED)
             notification.error_message = f"SMTP {type(exc).__name__}；" + ("送达结果待 HR 核实" if notification.status == NotificationStatus.UNKNOWN else "请检查设置后重试")
-        notification.provider_response = {"mode": "smtp", "transport": "ssl" if (get_setting("SMTP_SSL") or get_setting("SMTP_USE_SSL", "false")).lower() in {"true", "1", "yes"} else "starttls"}
+        notification.provider_response = {**sender, "mode": "smtp", "transport": "ssl" if smtp_config["SMTP_SSL"].lower() in {"true", "1", "yes"} else "starttls"}
     write_audit_log(session, actor="通知程序", action="notification.attempted", entity_type="notification", entity_id=notification.id,
                     after_data={"status": notification.status.value, "target_type": target_type, "target_id": target_id})
     session.commit()

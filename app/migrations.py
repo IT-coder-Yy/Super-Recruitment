@@ -43,7 +43,7 @@ def prepare_upgrade(engine: Engine) -> Path | None:
             source.backup(destination)
         assets = backup.with_suffix(".files")
         assets.mkdir()
-        for name in ("uploads", "runtime.env"):
+        for name in ("uploads", "runtime.env", "users"):
             original = path.parent / name
             if original.is_dir():
                 shutil.copytree(original, assets / name)

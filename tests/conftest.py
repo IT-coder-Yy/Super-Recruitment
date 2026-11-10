@@ -19,6 +19,7 @@ os.environ.update({
     "LLM_PROVIDER": "mock", "LLM_API_KEY": "", "LLM_BASE_URL": "", "LLM_MODEL": "",
     "LLM_CONNECT_TIMEOUT_SECONDS": "30", "LLM_READ_TIMEOUT_SECONDS": "120",
     "SMTP_HOST": "", "SMTP_PASSWORD": "", "WECOM_WEBHOOK_URL": "",
+    "MEETING_PROVIDER": "mock", "TENCENT_MEETING_TOKEN": "",
     "APP_SECRET_KEY": "isolated-test-secret-not-for-deployment",
     "APP_PUBLIC_BASE_URL": "http://testserver", "FOLLOWUP_ENABLED": "false",
 })

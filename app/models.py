@@ -510,6 +510,7 @@ class Interview(TimestampMixin, Base):
         UniqueConstraint("application_id", "round", name="uq_interview_round"),
         Index("ix_interviews_status", "status"),
         Index("ix_interviews_confirmed_start", "confirmed_start_at"),
+        Index("uq_interview_meeting_id_idx", "meeting_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -535,6 +536,8 @@ class Interview(TimestampMixin, Base):
     )
     meeting_url: Mapped[str | None] = mapped_column(Text)
     meeting_status: Mapped[str | None] = mapped_column(String(50))
+    meeting_id: Mapped[str | None] = mapped_column(String(32))
+    meeting_request: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     calendar_status: Mapped[str | None] = mapped_column(String(50))
     feedback: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 

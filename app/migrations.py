@@ -13,6 +13,7 @@ from sqlalchemy import Engine, inspect, text
 
 
 ADDED_COLUMNS = {
+    "interviews": {"meeting_id": "VARCHAR(32)", "meeting_request": "JSON"},
     "jobs": {"recruitment_type": "VARCHAR(20) NOT NULL DEFAULT 'autumn'"},
     "exam_resources": {"job_id": "INTEGER REFERENCES jobs(id)", "request_key": "VARCHAR(64)"},
     "evaluations": {"input_snapshot": "JSON", "is_stale": "BOOLEAN NOT NULL DEFAULT 0"},
@@ -77,6 +78,7 @@ def finish_upgrade(engine: Engine) -> list[dict]:
         if not duplicates:
             connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_application_candidate_job_idx ON applications(candidate_id, job_id)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_exam_resource_request_idx ON exam_resources(request_key)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_interview_meeting_id_idx ON interviews(meeting_id)"))
         connection.execute(text("CREATE TABLE IF NOT EXISTS app_schema_versions (version INTEGER PRIMARY KEY)"))
         connection.execute(text("INSERT INTO app_schema_versions(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM app_schema_versions WHERE version=1)"))
         if engine.dialect.name == "sqlite" and connection.exec_driver_sql("PRAGMA foreign_key_check").fetchone():

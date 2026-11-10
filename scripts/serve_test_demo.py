@@ -29,6 +29,7 @@ os.environ.update({
     "APP_SECRET_KEY": "synthetic-ui-test-secret", "LLM_PROVIDER": "mock", "LLM_BASE_URL": "", "LLM_API_KEY": "", "LLM_MODEL": "",
     "SMTP_HOST": "", "SMTP_PASSWORD": "", "WECOM_WEBHOOK_URL": "", "FOLLOWUP_ENABLED": "false",
     "APP_PUBLIC_BASE_URL": f"http://127.0.0.1:{args.port}",
+    "MEETING_PROVIDER": "mock", "TENCENT_MEETING_TOKEN": "",
 })
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.main import app, startup

@@ -167,6 +167,8 @@ def public_integration_settings(user_id: int | None = None) -> dict[str, str | b
     personal = smtp["source"] == "personal"
     return {
         "wecom_webhook_configured": bool(webhook),
+        "meeting_provider": get_setting("MEETING_PROVIDER", "mock"),
+        "meeting_token_configured": bool(get_setting("TENCENT_MEETING_TOKEN")),
         "wecom_webhook_hint": f"••••{webhook[-6:]}" if webhook else "",
         "smtp_configured": bool(smtp["SMTP_HOST"]),
         "smtp_source": smtp["source"],

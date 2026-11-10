@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -13,6 +14,8 @@ import httpx
 JsonObject = dict[str, Any]
 FallbackFactory = Callable[[], JsonObject]
 Validator = Callable[[JsonObject], JsonObject]
+DEFAULT_CONNECT_TIMEOUT = 30.0
+DEFAULT_READ_TIMEOUT = 120.0
 
 ONLINE_PROVIDERS = {
     "openai",
@@ -38,7 +41,19 @@ def get_llm_settings() -> dict[str, str]:
         "base_url": _first_env("LLM_BASE_URL", "BASE_URL"),
         "api_key": _first_env("LLM_API_KEY", "API_KEY"),
         "model": _first_env("LLM_MODEL", "MODEL"),
+        "connect_timeout": _first_env("LLM_CONNECT_TIMEOUT_SECONDS", default=str(DEFAULT_CONNECT_TIMEOUT)),
+        "read_timeout": _first_env("LLM_READ_TIMEOUT_SECONDS", default=str(DEFAULT_READ_TIMEOUT)),
     }
+
+
+def _timeout_seconds(value: float | str, name: str) -> float:
+    try:
+        seconds = float(value)
+    except (ValueError, TypeError):
+        raise ValueError(f"{name}须为有限正数秒") from None
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError(f"{name}须为有限正数秒")
+    return seconds
 
 
 def _strict_json_object(text: str) -> JsonObject:
@@ -66,14 +81,23 @@ class LLMClient:
         base_url: str | None = None,
         api_key: str | None = None,
         model: str | None = None,
-        timeout: float = 30.0,
+        timeout: float | None = None,
+        connect_timeout: float | str | None = None,
+        read_timeout: float | str | None = None,
     ) -> None:
         settings = get_llm_settings()
         self.provider = (provider or settings["provider"] or "mock").lower()
         self.base_url = (base_url if base_url is not None else settings["base_url"]).strip()
         self.api_key = api_key if api_key is not None else settings["api_key"]
         self.model = (model if model is not None else settings["model"]).strip()
-        self.timeout = timeout
+        base_timeout = _timeout_seconds(timeout if timeout is not None else 30.0, "timeout")
+        self.timeout = httpx.Timeout(
+            base_timeout,
+            connect=_timeout_seconds(connect_timeout if connect_timeout is not None else
+                                     timeout if timeout is not None else settings["connect_timeout"], "LLM_CONNECT_TIMEOUT_SECONDS"),
+            read=_timeout_seconds(read_timeout if read_timeout is not None else
+                                  timeout if timeout is not None else settings["read_timeout"], "LLM_READ_TIMEOUT_SECONDS"),
+        )
 
     def generate_json(
         self,

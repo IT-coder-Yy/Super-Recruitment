@@ -1,0 +1,2864 @@
+{
+  "version": "demo-v2.1",
+  "scoring_rules_version": "2.1-r1-r5",
+  "synthetic": true,
+  "review_status": "approved_by_user",
+  "human_signoff": true,
+  "human_reviewer": "当前对话用户",
+  "reviewed_on": "2026-10-29",
+  "frozen_on": "2026-11-03",
+  "approval_events": [
+    {
+      "scope": "B01",
+      "source": "B01 同意，继续下一组。",
+      "date": "2026-10-29"
+    },
+    {
+      "scope": "B02",
+      "source": "B02 同意，后续的几组也都同意",
+      "date": "2026-10-29"
+    },
+    {
+      "scope": "B03—B24",
+      "source": "剩余22组按此确认",
+      "date": "2026-10-29"
+    }
+  ],
+  "approval_scope": "24组固定分档、总分与解释；用户确认不等于模型输出已通过语义复验，也不授权真实外呼。",
+  "draft_source": {
+    "file": "annotations-v2-draft.json",
+    "sha256": "f96a9578ab7d45a64a89ab30a160db8d371b51c58080b0cff2b29bc68d6dd0e4"
+  },
+  "baseline_annotations": "annotations.json：复用原虚构身份、事实及导入补全；保留v1原签收状态，旧评分不沿用。",
+  "baseline_manifest_sha256": "da3014274a40479d691d2583429d4f01fc5f3d6a0c336bf6f71ae2d2123d0903",
+  "rule_approval": {
+    "status": "approved",
+    "source": "用户在本对话逐项确认R1—R5；不等于签收具体标注"
+  },
+  "applicability_confirmation": {
+    "source": "本对话用户：保留权重，但有明确评价依据才参与。",
+    "confirmed_on": "2026-10-29",
+    "scope": "相关实践经验和业务领域保留基础权重，仅在有明确评价依据时参与；不自动签收未确认组别。"
+  },
+  "provenance": {
+    "author": "主Agent逐条阅读冻结原始简历与JD后整理的AI草案",
+    "mock_scores_used": false,
+    "independent_review": "rules_v2_benchmark_review已独立核对原文、24组结构、171处引用和分数组合，并抽查r06/r10/r11；AI复核不替代用户签收"
+  },
+  "scoring_conventions": [
+    "前三条技术要求归必备技能，第四条归项目证据，第五条出勤不计分。两份JD未独立要求经验或领域，相关维度为0权重。",
+    "同维度条款等权；总分=round(round(前三条平均,2)*35/60+第四条*25/60,2)。",
+    "所有score与total_range均为本次确认的唯一值；原候选区间仅保存在草案，不作为正式容差。",
+    "相近技术部分分标transfer，明确未满足的指定栈；未知和冲突分别记录。",
+    "12份原文均无支持100分的相关量化成果；实习月数、团队人数不是成果。",
+    "2026-11-03确认：JD指定关键技术缺证时，迁移评分最高30；70/transfer限于未限定实现技术且核心工作完整证明的情况，不连带降低独立项目条款。",
+    "2026-11-03确认：目标技术只列技能表、项目未绑定该技术时标30/self_report；其他组件实际工作不改变该技术自述状态。"
+  ],
+  "jobs": {
+    "backend": {
+      "source_file": "jd-backend.txt",
+      "source_sha256": "1deb1b96af6a2eb24e905ba0d897534b5751f781ad90c6cd31b52a97c87a8de4",
+      "requirements": [
+        {
+          "id": "required_skills:1",
+          "text": "Python 与 FastAPI 接口开发",
+          "line": 2,
+          "scored": true
+        },
+        {
+          "id": "required_skills:2",
+          "text": "SQL 与事务",
+          "line": 2,
+          "scored": true
+        },
+        {
+          "id": "required_skills:3",
+          "text": "接口测试和异常边界",
+          "line": 2,
+          "scored": true
+        },
+        {
+          "id": "project_evidence:1",
+          "text": "说明本人负责的实现",
+          "line": 2,
+          "scored": true
+        },
+        {
+          "id": "communication_intent:1",
+          "text": "每周至少四天实习",
+          "line": 2,
+          "scored": false
+        }
+      ],
+      "effective_weights": {
+        "required_skills": 0.5833333333333334,
+        "project_evidence": 0.4166666666666667,
+        "relevant_experience": 0,
+        "domain_match": 0,
+        "communication_intent": 0
+      }
+    },
+    "frontend": {
+      "source_file": "jd-frontend.txt",
+      "source_sha256": "63f98b1968a30664339278e90e3a9c31e533885944f21492587bbc7355714876",
+      "requirements": [
+        {
+          "id": "required_skills:1",
+          "text": "TypeScript 与 React",
+          "line": 2,
+          "scored": true
+        },
+        {
+          "id": "required_skills:2",
+          "text": "CSS 与移动端适配",
+          "line": 2,
+          "scored": true
+        },
+        {
+          "id": "required_skills:3",
+          "text": "键盘无障碍和浏览器测试",
+          "line": 2,
+          "scored": true
+        },
+        {
+          "id": "project_evidence:1",
+          "text": "说明本人负责的实现",
+          "line": 2,
+          "scored": true
+        },
+        {
+          "id": "communication_intent:1",
+          "text": "每周至少四天实习",
+          "line": 2,
+          "scored": false
+        }
+      ],
+      "effective_weights": {
+        "required_skills": 0.5833333333333334,
+        "project_evidence": 0.4166666666666667,
+        "relevant_experience": 0,
+        "domain_match": 0,
+        "communication_intent": 0
+      }
+    }
+  },
+  "pairs": [
+    {
+      "id": "r01-backend",
+      "question_id": "B01",
+      "sample_id": "r01",
+      "job_id": "backend",
+      "source_file": "r01.txt",
+      "source_sha256": "c632282ae1010b66ec7d9263f2ee33ca9b0eb2f39600bacf0d7a321a378775bc",
+      "text_source": "r01.txt",
+      "text_source_sha256": "c632282ae1010b66ec7d9263f2ee33ca9b0eb2f39600bacf0d7a321a378775bc",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：B01 同意，继续下一组。",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r01.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r01.txt",
+              "line": 6,
+              "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r01.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r01.txt",
+              "line": 6,
+              "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r01.txt",
+              "line": 6,
+              "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r01.txt",
+              "line": 6,
+              "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。"
+            }
+          ]
+        }
+      ],
+      "total_score": 70,
+      "total_range": [
+        70,
+        70
+      ],
+      "reason": "FastAPI接口、SQL事务和异常回滚均有明确实现；本条Python技能与FastAPI项目可关联。；本人实现SQL事务防重复下单。；pytest覆盖异常回滚，说明测试行为与异常边界。；明确独立编写订单接口；没有量化结果，最高70。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r01.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r02-backend",
+      "question_id": "B02",
+      "sample_id": "r02",
+      "job_id": "backend",
+      "source_file": "r02.txt",
+      "source_sha256": "a09c8d4139a7376c0a4b21fae0d9dbbb41a19e701818bcfa9ad4285670a729db",
+      "text_source": "r02.txt",
+      "text_source_sha256": "a09c8d4139a7376c0a4b21fae0d9dbbb41a19e701818bcfa9ad4285670a729db",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：B02 同意，后续的几组也都同意（仅B02范围明确，其余暂不代填签收）。",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r02.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r02.txt",
+              "line": 6,
+              "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r02.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r02.txt",
+              "line": 6,
+              "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r02.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r02.txt",
+              "line": 6,
+              "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r02.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r02.txt",
+              "line": 6,
+              "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "已核对技能和项目，未提供本条目标技术及实践证据；不推定不会。；已核对技能和项目，未提供本条目标技术及实践证据；不推定不会。；已核对技能和项目，未提供本条目标技术及实践证据；不推定不会。；现有项目未提供目标岗位相关的本人实现证据；只表示本材料缺证，不代表不会。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r02.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r03-backend",
+      "question_id": "B03",
+      "sample_id": "r03",
+      "job_id": "backend",
+      "source_file": "r03.txt",
+      "source_sha256": "5d83c863e2735199150aab2ae4f54b8f9953db115dea096b46b992cf01124aba",
+      "text_source": "r03.txt",
+      "text_source_sha256": "5d83c863e2735199150aab2ae4f54b8f9953db115dea096b46b992cf01124aba",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r03.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、TypeScript、React"
+            },
+            {
+              "file": "r03.txt",
+              "line": 6,
+              "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r03.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、TypeScript、React"
+            },
+            {
+              "file": "r03.txt",
+              "line": 6,
+              "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r03.txt",
+              "line": 6,
+              "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r03.txt",
+              "line": 6,
+              "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。"
+            }
+          ]
+        }
+      ],
+      "total_score": 48.61,
+      "total_range": [
+        48.61,
+        48.61
+      ],
+      "reason": "SQL有自述但缺事务证据；本人接口清楚，测试缺证。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r03.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r04-backend",
+      "question_id": "B04",
+      "sample_id": "r04",
+      "job_id": "backend",
+      "source_file": "r04.txt",
+      "source_sha256": "58bbd59245682463ef24abace22656d45288f191bd16578aa5983240d84e5bda",
+      "text_source": "r04.txt",
+      "text_source_sha256": "58bbd59245682463ef24abace22656d45288f191bd16578aa5983240d84e5bda",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 30,
+          "status": "transfer",
+          "references": [
+            {
+              "file": "r04.txt",
+              "line": 5,
+              "quote": "技能：Python、SQL"
+            },
+            {
+              "file": "r04.txt",
+              "line": 6,
+              "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 30,
+          "status": "transfer",
+          "references": [
+            {
+              "file": "r04.txt",
+              "line": 5,
+              "quote": "技能：Python、SQL"
+            },
+            {
+              "file": "r04.txt",
+              "line": 6,
+              "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r04.txt",
+              "line": 6,
+              "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r04.txt",
+              "line": 6,
+              "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。"
+            }
+          ]
+        }
+      ],
+      "total_score": 11.67,
+      "total_range": [
+        11.67,
+        11.67
+      ],
+      "reason": "认可Python和SQL的迁移基础；未提供接口开发、事务及测试的完整证据。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r04.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r05-backend",
+      "question_id": "B05",
+      "sample_id": "r05",
+      "job_id": "backend",
+      "source_file": "r05.txt",
+      "source_sha256": "bcdaa262fffd822b6c5ab51a147fde42be7573deaa71a1b0f9c84e49a64d2aea",
+      "text_source": "r05.txt",
+      "text_source_sha256": "bcdaa262fffd822b6c5ab51a147fde42be7573deaa71a1b0f9c84e49a64d2aea",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r05.txt",
+              "line": 5,
+              "quote": "技能：React、JavaScript、CSS"
+            },
+            {
+              "file": "r05.txt",
+              "line": 6,
+              "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r05.txt",
+              "line": 5,
+              "quote": "技能：React、JavaScript、CSS"
+            },
+            {
+              "file": "r05.txt",
+              "line": 6,
+              "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r05.txt",
+              "line": 5,
+              "quote": "技能：React、JavaScript、CSS"
+            },
+            {
+              "file": "r05.txt",
+              "line": 6,
+              "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r05.txt",
+              "line": 5,
+              "quote": "技能：React、JavaScript、CSS"
+            },
+            {
+              "file": "r05.txt",
+              "line": 6,
+              "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r05.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r06-backend",
+      "question_id": "B06",
+      "sample_id": "r06",
+      "job_id": "backend",
+      "source_file": "r06.txt",
+      "source_sha256": "601192a35e2996f9d93ae653cf64169f14a5d7f3a3f6805a5d08b1bb977a5447",
+      "text_source": "r06.txt",
+      "text_source_sha256": "601192a35e2996f9d93ae653cf64169f14a5d7f3a3f6805a5d08b1bb977a5447",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 30,
+          "status": "transfer",
+          "references": [
+            {
+              "file": "r06.txt",
+              "line": 5,
+              "quote": "技能：Java、Spring Boot、SQL、JUnit"
+            },
+            {
+              "file": "r06.txt",
+              "line": 6,
+              "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r06.txt",
+              "line": 5,
+              "quote": "技能：Java、Spring Boot、SQL、JUnit"
+            },
+            {
+              "file": "r06.txt",
+              "line": 6,
+              "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 30,
+          "status": "transfer",
+          "references": [
+            {
+              "file": "r06.txt",
+              "line": 6,
+              "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r06.txt",
+              "line": 6,
+              "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。"
+            }
+          ]
+        }
+      ],
+      "total_score": 46.67,
+      "total_range": [
+        46.67,
+        46.67
+      ],
+      "reason": "认可Spring Boot后端实现；指定Python/FastAPI技术缺证，迁移最高30。SQL只在技能表、未与事务项目关联，保留30/self_report；接口测试与异常边界仍缺完整证据。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r06.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ],
+      "revision": {
+        "amended_on": "2026-11-03",
+        "human_reviewer": "当前对话用户",
+        "review_source": "A：统一为30分／自述，修订B06状态（推荐）",
+        "change": "required_skills:2状态transfer改self_report，score仍30，总分仍46.67。"
+      }
+    },
+    {
+      "id": "r07-backend",
+      "question_id": "B07",
+      "sample_id": "r07",
+      "job_id": "backend",
+      "source_file": "r07.txt",
+      "source_sha256": "f3e930f16375d4cdabe1d8650cc05bec15f5a4d6f5ee9e2b23441f30f3fc42c2",
+      "text_source": "r07.txt",
+      "text_source_sha256": "f3e930f16375d4cdabe1d8650cc05bec15f5a4d6f5ee9e2b23441f30f3fc42c2",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r07.txt",
+              "line": 5,
+              "quote": "技能：Python、PyTorch"
+            },
+            {
+              "file": "r07.txt",
+              "line": 6,
+              "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r07.txt",
+              "line": 5,
+              "quote": "技能：Python、PyTorch"
+            },
+            {
+              "file": "r07.txt",
+              "line": 6,
+              "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r07.txt",
+              "line": 6,
+              "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r07.txt",
+              "line": 6,
+              "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。"
+            }
+          ]
+        }
+      ],
+      "total_score": 5.83,
+      "total_range": [
+        5.83,
+        5.83
+      ],
+      "reason": "认可Python自述；模型训练不能直接证明Web接口、SQL和接口测试。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r07.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r08-backend",
+      "question_id": "B08",
+      "sample_id": "r08",
+      "job_id": "backend",
+      "source_file": "r08.txt",
+      "source_sha256": "ff980ccdffd0aeae6a193937553efa1d58c67c4c0220362788ecd5e18fd6ca17",
+      "text_source": "r08.txt",
+      "text_source_sha256": "ff980ccdffd0aeae6a193937553efa1d58c67c4c0220362788ecd5e18fd6ca17",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r08.txt",
+              "line": 5,
+              "quote": "技能：Figma、视觉设计"
+            },
+            {
+              "file": "r08.txt",
+              "line": 6,
+              "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r08.txt",
+              "line": 5,
+              "quote": "技能：Figma、视觉设计"
+            },
+            {
+              "file": "r08.txt",
+              "line": 6,
+              "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r08.txt",
+              "line": 5,
+              "quote": "技能：Figma、视觉设计"
+            },
+            {
+              "file": "r08.txt",
+              "line": 6,
+              "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r08.txt",
+              "line": 5,
+              "quote": "技能：Figma、视觉设计"
+            },
+            {
+              "file": "r08.txt",
+              "line": 6,
+              "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r08.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r09-backend",
+      "question_id": "B09",
+      "sample_id": "r09",
+      "job_id": "backend",
+      "source_file": "r09.docx",
+      "source_sha256": "119b2e58d1b19c48e9e28d516b19b6d8dae0f44185a3cdf24873a0ceab76f4ff",
+      "text_source": "r09.txt",
+      "text_source_sha256": "a4fabfce8b941c308761d014a894b56860f4413f61c0d795e3c6b40d928dab1f",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r09.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r09.txt",
+              "line": 5,
+              "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r09.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r09.txt",
+              "line": 5,
+              "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r09.txt",
+              "line": 5,
+              "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r09.txt",
+              "line": 5,
+              "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。"
+            },
+            {
+              "file": "r09.txt",
+              "line": 6,
+              "quote": "经历：个人项目，未说明可实习时间。"
+            }
+          ]
+        }
+      ],
+      "total_score": 54.44,
+      "total_range": [
+        54.44,
+        54.44
+      ],
+      "reason": "API及回归实现清楚；未明确API技术栈和SQL事务关联，前两项保留自述分。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "未知",
+          "reference": {
+            "file": "r09.txt",
+            "line": 7,
+            "quote": "意向：未说明到岗与实习时间"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r10-backend",
+      "question_id": "B10",
+      "sample_id": "r10",
+      "job_id": "backend",
+      "source_file": "r10.pdf",
+      "source_sha256": "fc2ba2dfafb340a5eeaf6a2bc767675e4b377e567536b7e99a6f77599bf875c1",
+      "text_source": "r10.txt",
+      "text_source_sha256": "7364241f412549d71e7fcaa06b1141a88b2762d4f0c76626eade6db7bdcbf59b",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r10.txt",
+              "line": 4,
+              "quote": "技能：TypeScript、React、CSS"
+            },
+            {
+              "file": "r10.txt",
+              "line": 5,
+              "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r10.txt",
+              "line": 4,
+              "quote": "技能：TypeScript、React、CSS"
+            },
+            {
+              "file": "r10.txt",
+              "line": 5,
+              "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r10.txt",
+              "line": 4,
+              "quote": "技能：TypeScript、React、CSS"
+            },
+            {
+              "file": "r10.txt",
+              "line": 5,
+              "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r10.txt",
+              "line": 4,
+              "quote": "技能：TypeScript、React、CSS"
+            },
+            {
+              "file": "r10.txt",
+              "line": 5,
+              "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r10.txt",
+            "line": 7,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r11-backend",
+      "question_id": "B11",
+      "sample_id": "r11",
+      "job_id": "backend",
+      "source_file": "r11.txt",
+      "source_sha256": "66f03caf05e5d7039a2f33d8d973e09becdba93455daa7bdc3742c3eeef86e52",
+      "text_source": "r11.txt",
+      "text_source_sha256": "66f03caf05e5d7039a2f33d8d973e09becdba93455daa7bdc3742c3eeef86e52",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r11.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL"
+            },
+            {
+              "file": "r11.txt",
+              "line": 5,
+              "quote": "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r11.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL"
+            },
+            {
+              "file": "r11.txt",
+              "line": 5,
+              "quote": "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r11.txt",
+              "line": 6,
+              "quote": "经历：团队课程项目，无测试证据。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r11.txt",
+              "line": 5,
+              "quote": "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。"
+            }
+          ]
+        }
+      ],
+      "total_score": 40.83,
+      "total_range": [
+        40.83,
+        40.83
+      ],
+      "reason": "只认本人查询接口；技术关联及事务证据不足，不计队友鉴权。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r11.txt",
+            "line": 7,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r12-backend",
+      "question_id": "B12",
+      "sample_id": "r12",
+      "job_id": "backend",
+      "source_file": "r12.txt",
+      "source_sha256": "45129abed101399de002484a190442c3f6ce28c0695b36ca0011d20fbac4de42",
+      "text_source": "r12.txt",
+      "text_source_sha256": "45129abed101399de002484a190442c3f6ce28c0695b36ca0011d20fbac4de42",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "Python 与 FastAPI 接口开发",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r12.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r12.txt",
+              "line": 6,
+              "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "SQL 与事务",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r12.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r12.txt",
+              "line": 6,
+              "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "接口测试和异常边界",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r12.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r12.txt",
+              "line": 6,
+              "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r12.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r12.txt",
+              "line": 6,
+              "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r12.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r01-frontend",
+      "question_id": "B13",
+      "sample_id": "r01",
+      "job_id": "frontend",
+      "source_file": "r01.txt",
+      "source_sha256": "c632282ae1010b66ec7d9263f2ee33ca9b0eb2f39600bacf0d7a321a378775bc",
+      "text_source": "r01.txt",
+      "text_source_sha256": "c632282ae1010b66ec7d9263f2ee33ca9b0eb2f39600bacf0d7a321a378775bc",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r01.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r01.txt",
+              "line": 6,
+              "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r01.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r01.txt",
+              "line": 6,
+              "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r01.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r01.txt",
+              "line": 6,
+              "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r01.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r01.txt",
+              "line": 6,
+              "quote": "项目：独立编写 FastAPI 订单接口，SQL 事务防止重复下单，pytest 覆盖异常回滚。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r01.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r02-frontend",
+      "question_id": "B14",
+      "sample_id": "r02",
+      "job_id": "frontend",
+      "source_file": "r02.txt",
+      "source_sha256": "a09c8d4139a7376c0a4b21fae0d9dbbb41a19e701818bcfa9ad4285670a729db",
+      "text_source": "r02.txt",
+      "text_source_sha256": "a09c8d4139a7376c0a4b21fae0d9dbbb41a19e701818bcfa9ad4285670a729db",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r02.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r02.txt",
+              "line": 6,
+              "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r02.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r02.txt",
+              "line": 6,
+              "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r02.txt",
+              "line": 6,
+              "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r02.txt",
+              "line": 6,
+              "quote": "项目：独立完成 React 管理后台，适配手机、键盘操作并用 Playwright 回归。"
+            }
+          ]
+        }
+      ],
+      "total_score": 54.44,
+      "total_range": [
+        54.44,
+        54.44
+      ],
+      "reason": "键盘与回归、本人实现清楚；TypeScript和CSS是否用于项目未直接说明。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r02.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r03-frontend",
+      "question_id": "B15",
+      "sample_id": "r03",
+      "job_id": "frontend",
+      "source_file": "r03.txt",
+      "source_sha256": "5d83c863e2735199150aab2ae4f54b8f9953db115dea096b46b992cf01124aba",
+      "text_source": "r03.txt",
+      "text_source_sha256": "5d83c863e2735199150aab2ae4f54b8f9953db115dea096b46b992cf01124aba",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r03.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、TypeScript、React"
+            },
+            {
+              "file": "r03.txt",
+              "line": 6,
+              "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r03.txt",
+              "line": 5,
+              "quote": "技能：Python、FastAPI、SQL、TypeScript、React"
+            },
+            {
+              "file": "r03.txt",
+              "line": 6,
+              "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r03.txt",
+              "line": 6,
+              "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r03.txt",
+              "line": 6,
+              "quote": "项目：完成 FastAPI 与 React 课程系统，负责接口和页面，没有压测或自动化测试记录。"
+            }
+          ]
+        }
+      ],
+      "total_score": 35,
+      "total_range": [
+        35,
+        35
+      ],
+      "reason": "本人React页面实现清楚；TypeScript项目关联、移动适配和测试缺证。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r03.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r04-frontend",
+      "question_id": "B16",
+      "sample_id": "r04",
+      "job_id": "frontend",
+      "source_file": "r04.txt",
+      "source_sha256": "58bbd59245682463ef24abace22656d45288f191bd16578aa5983240d84e5bda",
+      "text_source": "r04.txt",
+      "text_source_sha256": "58bbd59245682463ef24abace22656d45288f191bd16578aa5983240d84e5bda",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r04.txt",
+              "line": 5,
+              "quote": "技能：Python、SQL"
+            },
+            {
+              "file": "r04.txt",
+              "line": 6,
+              "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r04.txt",
+              "line": 5,
+              "quote": "技能：Python、SQL"
+            },
+            {
+              "file": "r04.txt",
+              "line": 6,
+              "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r04.txt",
+              "line": 5,
+              "quote": "技能：Python、SQL"
+            },
+            {
+              "file": "r04.txt",
+              "line": 6,
+              "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r04.txt",
+              "line": 5,
+              "quote": "技能：Python、SQL"
+            },
+            {
+              "file": "r04.txt",
+              "line": 6,
+              "quote": "项目：用 Python 清洗 CSV 并用 SQL 汇总数据；没有 Web API 项目。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r04.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r05-frontend",
+      "question_id": "B17",
+      "sample_id": "r05",
+      "job_id": "frontend",
+      "source_file": "r05.txt",
+      "source_sha256": "bcdaa262fffd822b6c5ab51a147fde42be7573deaa71a1b0f9c84e49a64d2aea",
+      "text_source": "r05.txt",
+      "text_source_sha256": "bcdaa262fffd822b6c5ab51a147fde42be7573deaa71a1b0f9c84e49a64d2aea",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 30,
+          "status": "transfer",
+          "references": [
+            {
+              "file": "r05.txt",
+              "line": 5,
+              "quote": "技能：React、JavaScript、CSS"
+            },
+            {
+              "file": "r05.txt",
+              "line": 6,
+              "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r05.txt",
+              "line": 5,
+              "quote": "技能：React、JavaScript、CSS"
+            },
+            {
+              "file": "r05.txt",
+              "line": 6,
+              "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r05.txt",
+              "line": 6,
+              "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r05.txt",
+              "line": 6,
+              "quote": "项目：React 静态作品集，支持移动端，未说明键盘导航和测试。"
+            },
+            {
+              "file": "r05.txt",
+              "line": 7,
+              "quote": "经历：个人练习，无企业实习。"
+            }
+          ]
+        }
+      ],
+      "total_score": 24.17,
+      "total_range": [
+        24.17,
+        24.17
+      ],
+      "reason": "认可React/JavaScript迁移和CSS自述；TypeScript、测试缺证，本人实现描述简略。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r05.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r06-frontend",
+      "question_id": "B18",
+      "sample_id": "r06",
+      "job_id": "frontend",
+      "source_file": "r06.txt",
+      "source_sha256": "601192a35e2996f9d93ae653cf64169f14a5d7f3a3f6805a5d08b1bb977a5447",
+      "text_source": "r06.txt",
+      "text_source_sha256": "601192a35e2996f9d93ae653cf64169f14a5d7f3a3f6805a5d08b1bb977a5447",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r06.txt",
+              "line": 5,
+              "quote": "技能：Java、Spring Boot、SQL、JUnit"
+            },
+            {
+              "file": "r06.txt",
+              "line": 6,
+              "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r06.txt",
+              "line": 5,
+              "quote": "技能：Java、Spring Boot、SQL、JUnit"
+            },
+            {
+              "file": "r06.txt",
+              "line": 6,
+              "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r06.txt",
+              "line": 5,
+              "quote": "技能：Java、Spring Boot、SQL、JUnit"
+            },
+            {
+              "file": "r06.txt",
+              "line": 6,
+              "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r06.txt",
+              "line": 5,
+              "quote": "技能：Java、Spring Boot、SQL、JUnit"
+            },
+            {
+              "file": "r06.txt",
+              "line": 6,
+              "quote": "项目：用 Spring Boot 编写库存接口、事务与 JUnit 测试；未使用 FastAPI。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r06.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r07-frontend",
+      "question_id": "B19",
+      "sample_id": "r07",
+      "job_id": "frontend",
+      "source_file": "r07.txt",
+      "source_sha256": "f3e930f16375d4cdabe1d8650cc05bec15f5a4d6f5ee9e2b23441f30f3fc42c2",
+      "text_source": "r07.txt",
+      "text_source_sha256": "f3e930f16375d4cdabe1d8650cc05bec15f5a4d6f5ee9e2b23441f30f3fc42c2",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r07.txt",
+              "line": 5,
+              "quote": "技能：Python、PyTorch"
+            },
+            {
+              "file": "r07.txt",
+              "line": 6,
+              "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r07.txt",
+              "line": 5,
+              "quote": "技能：Python、PyTorch"
+            },
+            {
+              "file": "r07.txt",
+              "line": 6,
+              "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r07.txt",
+              "line": 5,
+              "quote": "技能：Python、PyTorch"
+            },
+            {
+              "file": "r07.txt",
+              "line": 6,
+              "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r07.txt",
+              "line": 5,
+              "quote": "技能：Python、PyTorch"
+            },
+            {
+              "file": "r07.txt",
+              "line": 6,
+              "quote": "项目：训练图片分类模型，记录验证集精度；未部署 Web 服务。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r07.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r08-frontend",
+      "question_id": "B20",
+      "sample_id": "r08",
+      "job_id": "frontend",
+      "source_file": "r08.txt",
+      "source_sha256": "ff980ccdffd0aeae6a193937553efa1d58c67c4c0220362788ecd5e18fd6ca17",
+      "text_source": "r08.txt",
+      "text_source_sha256": "ff980ccdffd0aeae6a193937553efa1d58c67c4c0220362788ecd5e18fd6ca17",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r08.txt",
+              "line": 5,
+              "quote": "技能：Figma、视觉设计"
+            },
+            {
+              "file": "r08.txt",
+              "line": 6,
+              "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r08.txt",
+              "line": 5,
+              "quote": "技能：Figma、视觉设计"
+            },
+            {
+              "file": "r08.txt",
+              "line": 6,
+              "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r08.txt",
+              "line": 5,
+              "quote": "技能：Figma、视觉设计"
+            },
+            {
+              "file": "r08.txt",
+              "line": 6,
+              "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r08.txt",
+              "line": 5,
+              "quote": "技能：Figma、视觉设计"
+            },
+            {
+              "file": "r08.txt",
+              "line": 6,
+              "quote": "项目：制作活动海报与界面设计稿，没有软件开发经历。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r08.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r09-frontend",
+      "question_id": "B21",
+      "sample_id": "r09",
+      "job_id": "frontend",
+      "source_file": "r09.docx",
+      "source_sha256": "119b2e58d1b19c48e9e28d516b19b6d8dae0f44185a3cdf24873a0ceab76f4ff",
+      "text_source": "r09.txt",
+      "text_source_sha256": "a4fabfce8b941c308761d014a894b56860f4413f61c0d795e3c6b40d928dab1f",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r09.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r09.txt",
+              "line": 5,
+              "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r09.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r09.txt",
+              "line": 5,
+              "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r09.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r09.txt",
+              "line": 5,
+              "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r09.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL、pytest"
+            },
+            {
+              "file": "r09.txt",
+              "line": 5,
+              "quote": "项目：为虚构商城编写 API 与回归用例，说明事务回滚边界。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "未知",
+          "reference": {
+            "file": "r09.txt",
+            "line": 7,
+            "quote": "意向：未说明到岗与实习时间"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r10-frontend",
+      "question_id": "B22",
+      "sample_id": "r10",
+      "job_id": "frontend",
+      "source_file": "r10.pdf",
+      "source_sha256": "fc2ba2dfafb340a5eeaf6a2bc767675e4b377e567536b7e99a6f77599bf875c1",
+      "text_source": "r10.txt",
+      "text_source_sha256": "7364241f412549d71e7fcaa06b1141a88b2762d4f0c76626eade6db7bdcbf59b",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r10.txt",
+              "line": 4,
+              "quote": "技能：TypeScript、React、CSS"
+            },
+            {
+              "file": "r10.txt",
+              "line": 5,
+              "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r10.txt",
+              "line": 4,
+              "quote": "技能：TypeScript、React、CSS"
+            },
+            {
+              "file": "r10.txt",
+              "line": 5,
+              "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 30,
+          "status": "transfer",
+          "references": [
+            {
+              "file": "r10.txt",
+              "line": 5,
+              "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r10.txt",
+              "line": 5,
+              "quote": "项目：React 表单校验和移动布局，提供键盘导航说明，未说明测试。"
+            },
+            {
+              "file": "r10.txt",
+              "line": 6,
+              "quote": "经历：校园项目，无企业实习。"
+            }
+          ]
+        }
+      ],
+      "total_score": 30,
+      "total_range": [
+        30,
+        30
+      ],
+      "reason": "认可已有前端及键盘说明；项目技术关联、浏览器测试及本人职责仍待核实。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r10.txt",
+            "line": 7,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r11-frontend",
+      "question_id": "B23",
+      "sample_id": "r11",
+      "job_id": "frontend",
+      "source_file": "r11.txt",
+      "source_sha256": "66f03caf05e5d7039a2f33d8d973e09becdba93455daa7bdc3742c3eeef86e52",
+      "text_source": "r11.txt",
+      "text_source_sha256": "66f03caf05e5d7039a2f33d8d973e09becdba93455daa7bdc3742c3eeef86e52",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r11.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL"
+            },
+            {
+              "file": "r11.txt",
+              "line": 5,
+              "quote": "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r11.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL"
+            },
+            {
+              "file": "r11.txt",
+              "line": 5,
+              "quote": "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r11.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL"
+            },
+            {
+              "file": "r11.txt",
+              "line": 5,
+              "quote": "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 0,
+          "status": "unknown",
+          "references": [
+            {
+              "file": "r11.txt",
+              "line": 4,
+              "quote": "技能：Python、FastAPI、SQL"
+            },
+            {
+              "file": "r11.txt",
+              "line": 5,
+              "quote": "项目：两人合作实现任务 API；仅负责查询接口，不能把队友的鉴权工作算作本人实现。"
+            }
+          ]
+        }
+      ],
+      "total_score": 0,
+      "total_range": [
+        0,
+        0
+      ],
+      "reason": "未提供目标岗位要求对应的证据，标未知，不推定不会或自动淘汰。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r11.txt",
+            "line": 7,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    },
+    {
+      "id": "r12-frontend",
+      "question_id": "B24",
+      "sample_id": "r12",
+      "job_id": "frontend",
+      "source_file": "r12.txt",
+      "source_sha256": "45129abed101399de002484a190442c3f6ce28c0695b36ca0011d20fbac4de42",
+      "text_source": "r12.txt",
+      "text_source_sha256": "45129abed101399de002484a190442c3f6ce28c0695b36ca0011d20fbac4de42",
+      "review_status": "approved_by_user",
+      "human_signoff": true,
+      "human_reviewer": "当前对话用户",
+      "reviewed_on": "2026-10-29",
+      "review_source": "本对话用户：剩余22组按此确认",
+      "criteria": [
+        {
+          "id": "required_skills:1",
+          "requirement": "TypeScript 与 React",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r12.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r12.txt",
+              "line": 6,
+              "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:2",
+          "requirement": "CSS 与移动端适配",
+          "score": 30,
+          "status": "self_report",
+          "references": [
+            {
+              "file": "r12.txt",
+              "line": 5,
+              "quote": "技能：TypeScript、React、CSS、Playwright"
+            },
+            {
+              "file": "r12.txt",
+              "line": 6,
+              "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。"
+            }
+          ]
+        },
+        {
+          "id": "required_skills:3",
+          "requirement": "键盘无障碍和浏览器测试",
+          "score": 30,
+          "status": "transfer",
+          "references": [
+            {
+              "file": "r12.txt",
+              "line": 6,
+              "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。"
+            }
+          ]
+        },
+        {
+          "id": "project_evidence:1",
+          "requirement": "说明本人负责的实现",
+          "score": 70,
+          "status": "implemented",
+          "references": [
+            {
+              "file": "r12.txt",
+              "line": 6,
+              "quote": "项目：在已有 React 项目修复表单无障碍缺陷并新增 Playwright 回归，保留变更记录。"
+            }
+          ]
+        }
+      ],
+      "total_score": 46.67,
+      "total_range": [
+        46.67,
+        46.67
+      ],
+      "reason": "本人修复与回归清楚；TypeScript项目关联、移动适配和键盘缺陷类型未明确。",
+      "eligibility": {
+        "weekly_attendance": {
+          "status": "自述满足",
+          "reference": {
+            "file": "r12.txt",
+            "line": 8,
+            "quote": "意向：每周可实习四天"
+          }
+        },
+        "start_date": {
+          "status": "未知",
+          "reason": "JD未指定到岗日期，样本也无明确日期；不计分。"
+        }
+      },
+      "excluded_factors": [
+        "学校名称与个人身份",
+        "课程/个人/企业来源的身份奖励或惩罚",
+        "重复经历",
+        "联系方式补齐",
+        "出勤与到岗"
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "job_id": "backend",
+      "relation": "r01 > r08",
+      "reason": "r01四条均有实现证据，r08无后端软件开发证据。",
+      "status": "derived_from_confirmed_scores"
+    },
+    {
+      "job_id": "frontend",
+      "relation": "r02 > r08",
+      "reason": "r02有React、移动、键盘及测试，r08只有设计稿。",
+      "status": "derived_from_confirmed_scores"
+    }
+  ],
+  "ranking_policy": "只在同一岗位、同一JD哈希和规则下比较；其余不强制全序，区间重叠暂不比较，用户可批准并列；无录用/淘汰阈值。",
+  "quality_acceptance": "NOT_EXECUTED：基准已确认；D02语义复验、D04真实模型与H04真实联通未通过。",
+  "revision": {
+    "amended_on": "2026-11-03",
+    "parent_file": "annotations-v2.json",
+    "parent_sha256": "1686cb85057ca71cbe0824d4535f58ca13ca8d7eedfd960c0c6d8f961146bc37",
+    "scope": "原24组签收继续有效；本次仅确认迁移分档边界及B06第二条状态，所有分数、总分和排序不变。",
+    "approval_events": [
+      {
+        "question": "JD点名关键技术缺证时的迁移上限",
+        "answer": "A：指定的关键技术缺证，迁移最高30分（推荐）"
+      },
+      {
+        "question": "B06 SQL与B14 CSS的未绑定技术自述状态一致性",
+        "answer": "A：统一为30分／自述，修订B06状态（推荐）"
+      }
+    ]
+  }
+}

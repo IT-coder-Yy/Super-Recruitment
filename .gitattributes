@@ -1,2 +1,6 @@
 *.pdf binary
 *.docx binary
+
+# 已签基准使用原始字节哈希，检出时不得转换样本换行。
+tests/fixtures/demo/*.txt -text whitespace=cr-at-eol
+tests/fixtures/demo/*.json -text whitespace=cr-at-eol

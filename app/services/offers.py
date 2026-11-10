@@ -524,7 +524,23 @@ def notify_internal(
     content: str,
     target_type: str | None = None,
     target_id: int | None = None,
+    dedupe_template: str | None = None,
 ) -> Notification:
+    notification = None
+    if dedupe_template:
+        session.flush()
+        session.execute(update(Notification).where(Notification.id == -1).values(id=Notification.id))
+        previous = session.scalar(select(Notification).where(
+            Notification.channel == "wecom", Notification.target_type == target_type,
+            Notification.target_id == target_id, Notification.template == dedupe_template,
+        ).order_by(Notification.id.desc()))
+        if previous:
+            return previous  # 结果不论成功或失败，重复业务提交都不再次发群通知。
+        notification = Notification(channel="wecom", recipient="内部招聘群", target_type=target_type,
+            target_id=target_id, template=dedupe_template, status=NotificationStatus.SENDING,
+            subject=title, content=content)
+        session.add(notification)
+        session.commit()
     result = send_wecom_notification(f"{title}\n{content}")
     status = (
         NotificationStatus.MOCKED
@@ -533,6 +549,11 @@ def notify_internal(
         if result.get("ok")
         else NotificationStatus.FAILED
     )
+    if notification:
+        notification.status, notification.provider_response = status, result
+        notification.error_message = (result.get("error") or {}).get("message")
+        session.commit()
+        return notification
     notification = Notification(
         channel="wecom",
         recipient="内部招聘群",

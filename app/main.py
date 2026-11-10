@@ -1786,13 +1786,15 @@ def send_interview_invite_api(
     except ValueError as exc:
         session.rollback()
         raise HTTPException(409, str(exc)) from exc
-    notify_internal(
-        session,
-        title="面试预约链接已生成",
-        content=f"{candidate.name or '候选人'} 的预约链接已发送/记录：{booking_url}",
-        target_type="interview",
-        target_id=interview.id,
-    )
+    if result.status in {NotificationStatus.SENT, NotificationStatus.MOCKED}:
+        notify_internal(
+            session,
+            title="面试预约链接已生成",
+            content=f"{candidate.name or '候选人'} 的预约链接已发送/记录：{booking_url}",
+            target_type="interview",
+            target_id=interview.id,
+            dedupe_template=f"interview_invite_{result.id}",
+        )
     write_audit_log(
         session,
         actor="排期Agent",

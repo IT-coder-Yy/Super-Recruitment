@@ -13,6 +13,7 @@ from sqlalchemy import Engine, inspect, text
 
 
 ADDED_COLUMNS = {
+    "users": {"is_active": "BOOLEAN NOT NULL DEFAULT 1"},
     "interviews": {"meeting_id": "VARCHAR(32)", "meeting_request": "JSON"},
     "jobs": {"recruitment_type": "VARCHAR(20) NOT NULL DEFAULT 'autumn'"},
     "exam_resources": {"job_id": "INTEGER REFERENCES jobs(id)", "request_key": "VARCHAR(64)"},

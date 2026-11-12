@@ -175,6 +175,7 @@ class User(TimestampMixin, Base):
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     normalized_username: Mapped[str] = mapped_column(String(100), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", nullable=False)
 
 
 class Candidate(TimestampMixin, Base):

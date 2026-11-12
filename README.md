@@ -23,9 +23,7 @@
   <img src="demo/super-recruitment-preview.gif" alt="Super-Recruitment 简历、AI 评估、面试、Offer 与入职流程示意动画" width="960">
 </p>
 
-<p align="center"><sub>AI 生成的功能示意 · 30 帧循环动画 · <a href="demo/super-recruitment-preview.png">查看静态图</a></sub></p>
-
-界面名称为 **TalentFlow**。以下录屏于 **2026 年 11 月 12 日** 根据当前版本重新录制，使用虚构候选人演示完整操作流程。点击各环节展开播放：
+以下为各个功能的预览
 
 <details>
 <summary>1. 登录与工作台：岗位筛选、看板 / 列表与主题切换</summary>
@@ -162,30 +160,6 @@ SMTP_FROM=同一个QQ邮箱
 5. 查看 **跟进中心、数据看板与审计日志**，按需导出 XLSX/CSV。
 
 接口说明见 [API 文档](http://127.0.0.1:8000/docs)，服务状态见 [健康检查](http://127.0.0.1:8000/health)。停止本项目服务可运行 `.\scripts\stop.ps1`。
-
-<details>
-<summary>运行测试</summary>
-
-```powershell
-.\scripts\test.ps1
-```
-
-脚本执行 Python 语法检查、pytest 和 Node.js 前端测试，使用独立的测试目录并核对本地配置、数据库是否保持不变。未安装 Conda 时使用当前 Python；也可通过 `TALENTFLOW_PYTHON` 指定解释器：
-
-```powershell
-$env:TALENTFLOW_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
-.\scripts\test.ps1
-```
-
-单独运行前端测试：
-
-```powershell
-node --test tests/theme.test.cjs tests/admin-navigation.test.cjs
-```
-
-可选浏览器检查脚本为 [scripts/ui_smoke.cjs](scripts/ui_smoke.cjs)，需要 Playwright 和 Edge；使用 `PLAYWRIGHT_MODULE` 指定模块路径，`TALENTFLOW_URL` 指向隔离演示服务。
-
-</details>
 
 <details>
 <summary>可选 Docker 启动</summary>

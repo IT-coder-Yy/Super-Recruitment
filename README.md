@@ -149,7 +149,7 @@ SMTP_FROM=同一个QQ邮箱
 .\scripts\start.ps1
 ```
 
-打开 [管理端](http://127.0.0.1:8000)，使用种子演示账号 **`demo-admin` / `demo123456`** 登录，或自行注册。注册成功后需要返回登录页登录；已有数据库缺少演示账号时，可运行 `conda run -n testin python -m app.seed`。
+打开 [管理端](http://127.0.0.1:8000)，使用已有账号登录。默认 `production` 和 `local` 模式只初始化结构，不生成演示账号或候选人；模拟采集入口也关闭。
 
 首次演示可按以下顺序操作：
 
@@ -197,3 +197,15 @@ tests/                      # Python 和 JavaScript 测试
 samples/resumes/            # 可上传的虚构简历
 demo/                       # 功能预览与操作录屏
 ```
+
+## 独立演示与旧账号升级
+
+虚构 Demo 使用独立目录运行：
+
+```powershell
+conda run -n testin python scripts/serve_test_demo.py .test-runs/demo-preview --port 8012
+```
+
+仅显式 `APP_ENV=demo` 模式允许初始化 `demo-admin / demo123456` 和演示候选人；`python -m app.seed` 在其他模式会拒绝执行。模拟采集只生成业务演示资料，不会重建账号。
+
+旧安装的 `demo-admin` 如果仍使用公开演示密码，正式启动会停用它。停止服务后，执行 `conda run --no-capture-output -n testin python -m app.accounts reset-password demo-admin`，交互设置至少 12 字符的新密码后恢复使用。修改前自动备份数据库、附件和运行配置；重置密码立即使该账号旧登录会话失效。历史候选人不会被删除或重新播种。

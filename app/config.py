@@ -53,6 +53,13 @@ def get_setting(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
 
+def demo_enabled() -> bool:
+    mode = get_setting("APP_ENV", "production").strip().lower()
+    if mode not in {"production", "local", "demo"}:
+        raise ValueError("APP_ENV 必须为 production、local 或显式演示模式 demo")
+    return mode == "demo"
+
+
 def public_url(path: str) -> str:
     from urllib.parse import urlsplit
     base = get_setting("APP_PUBLIC_BASE_URL") or "http://127.0.0.1:8000"

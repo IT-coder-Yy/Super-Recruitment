@@ -13,6 +13,7 @@ TEST_ROOT = Path(os.environ["TALENTFLOW_TEST_ROOT"]) if os.environ.get("TALENTFL
 )
 TEST_ROOT.mkdir(parents=True, exist_ok=True)
 os.environ.update({
+    "APP_ENV": "demo",
     "APP_DATA_DIR": str(TEST_ROOT / "data"),
     "APP_RUNTIME_ENV": str(TEST_ROOT / "data" / "runtime.env"),
     "DATABASE_URL": "sqlite:///:memory:",

@@ -22,6 +22,7 @@ from app.config import (
     clear_llm_api_key,
     ensure_runtime_dirs,
     get_setting,
+    demo_enabled,
     public_integration_settings,
     public_llm_settings,
     reload_env,
@@ -150,6 +151,7 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "app" / "static"), name="static")
 templates = Jinja2Templates(directory=ROOT_DIR / "app" / "templates")
 templates.env.filters["appointment_time"] = appointment_time
+templates.env.globals["demo_enabled"] = demo_enabled
 
 PUBLIC_EXACT_PATHS = {"/health", "/login", "/register", "/favicon.ico"}
 PUBLIC_PATH_PREFIXES = ("/static/", "/schedule/", "/offer/")
@@ -716,6 +718,8 @@ def login(
 
 @app.get("/register")
 def register_page(request: Request):
+    if not demo_enabled():
+        raise HTTPException(403, "当前部署由管理员创建账号，未开放自由注册")
     if request.session.get("user_id"):
         return RedirectResponse("/", status_code=303)
     return templates.TemplateResponse(
@@ -733,6 +737,8 @@ def register(
     csrf_token: str = Form(""),
     session: Session = Depends(get_db),
 ):
+    if not demo_enabled():
+        raise HTTPException(403, "当前部署由管理员创建账号，未开放自由注册")
     _ensure_csrf_form(request, csrf_token)
     display_username = username.strip()
     normalized_username = normalize_username(username)

@@ -139,7 +139,7 @@ SMTP_FROM=同一个QQ邮箱
 ### 3. 了解数据边界
 
 - **本地数据**：数据库、上传文件、导出和运行配置默认位于 `data/`；迁移时保留该目录，包括个人邮箱配置。密钥保存在本机配置文件中，未提供额外的静态加密。
-- **账号与权限**：管理页面和 API 需要登录；当前允许自行注册，候选人的预约与 Offer 链接按 Token 公开访问。登录能力不等于完整的企业权限体系。
+- **账号与权限**：每个账号只访问自己的候选人及关联流程，管理员也不能跨账号访问。全局模型和企微设置仅管理员可改，Offer 审批需要管理员或显式授权；公开链接只允许访问对应记录。
 - **人工审批**：在线评估前对手机号和邮箱脱敏；薪资、职级与预计入职日期由 HR 填写，模型只辅助生成草稿和摘要。
 - **月历与导出**：项目内月历无需外部日历服务，XLSX/CSV 导出也不代表已同步腾讯文档。
 
@@ -197,3 +197,20 @@ tests/                      # Python 和 JavaScript 测试
 samples/resumes/            # 可上传的虚构简历
 demo/                       # 功能预览与操作录屏
 ```
+
+## 账号权限与数据交接
+
+候选人、来源、岗位、投递、评估、考试、面试、Offer、入职、通知、导出和审计按登录账号隔离，查重限定在本账号内。定时跟进逐个账号处理。
+
+在服务器本机维护账号及权限：
+
+```powershell
+python -m app.accounts create hr-one
+python -m app.accounts update hr-one --approve-offers yes
+python -m app.accounts update hr-one --active no
+python -m app.accounts update demo-admin --admin yes --approve-offers yes
+```
+
+升级会先备份旧数据库、附件与配置；没有可靠归属的历史数据保留且不对任何账号开放。停止服务并核实账号后，执行 `python -m app.accounts assign-legacy demo-admin` 分配全部无归属资料。账号间完整交接使用 `python -m app.accounts transfer 来源账号 接收账号`；唯一约束冲突会整体回滚，不自动合并跨账号候选人。归属迁移不自动授予权限。
+
+停用账号会立即阻止其管理端会话和候选人公开链接。普通 HR 只能处理自己的业务，审批授权也不增加跨账号读取权限。

@@ -22,6 +22,7 @@ from app.config import (
     clear_llm_api_key,
     ensure_runtime_dirs,
     get_setting,
+    session_secret,
     public_integration_settings,
     public_llm_settings,
     reload_env,
@@ -35,6 +36,7 @@ from app.config import (
 
 ensure_runtime_dirs()
 reload_env(override=False)
+SESSION_SECRET = session_secret()
 
 from app.adapters.meeting import create_mock_tencent_meeting
 from app.adapters.tencent_meeting import MeetingError
@@ -261,7 +263,7 @@ async def require_authentication(request: Request, call_next):
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=get_setting("APP_SECRET_KEY", "change-this-local-secret"),
+    secret_key=SESSION_SECRET,
     session_cookie="talentflow_session",
     same_site="lax",
     https_only=False,
@@ -1633,7 +1635,7 @@ def schedule_application(
     if interview is None:
         token = create_booking_token(
             {"application_id": application.id},
-            get_setting("APP_SECRET_KEY", "change-this-local-secret"),
+            SESSION_SECRET,
         )
         interview, _ = create_interview(
             session,
@@ -1656,13 +1658,13 @@ def schedule_application(
         expired = not interview.booking_token_expires_at or interview.booking_token_expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc)
         if token:
             try:
-                verify_booking_token(token, get_setting("APP_SECRET_KEY", "change-this-local-secret"))
+                verify_booking_token(token, SESSION_SECRET)
             except BookingTokenError:
                 expired = True
         if token is None or expired:
             token = create_booking_token(
                 {"application_id": application.id},
-                get_setting("APP_SECRET_KEY", "change-this-local-secret"),
+                SESSION_SECRET,
             )
             interview.booking_token = token
             interview.booking_token_expires_at = datetime.now(timezone.utc) + timedelta(hours=48)
@@ -2044,7 +2046,7 @@ def sync_tencent_docs_api(request: Request, session: Session = Depends(get_db)) 
 def booking_page(token: str, request: Request, session: Session = Depends(get_db)):
     try:
         payload = verify_booking_token(
-            token, get_setting("APP_SECRET_KEY", "change-this-local-secret")
+            token, SESSION_SECRET
         )
     except BookingTokenError as exc:
         return templates.TemplateResponse(
@@ -2087,7 +2089,7 @@ def confirm_booking(
     session.execute(update(Interview).where(Interview.id == -1).values(id=Interview.id))
     try:
         verify_booking_token(
-            token, get_setting("APP_SECRET_KEY", "change-this-local-secret")
+            token, SESSION_SECRET
         )
     except BookingTokenError as exc:
         raise HTTPException(400, str(exc)) from exc

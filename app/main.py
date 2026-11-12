@@ -301,6 +301,11 @@ async def require_authentication(request: Request, call_next):
         "is_admin": user.is_admin,
         "can_approve_offers": user.is_admin or user.can_approve_offers,
     }
+    admin_action = (path.startswith("/api/settings/llm") or path.startswith("/settings/llm")
+                    or path == "/settings/wecom" or path == "/settings" and request.method == "POST")
+    approval_action = re.fullmatch(r"/api/offers/\d+/(approve|return)", path)
+    if admin_action and not user.is_admin or approval_action and not (user.is_admin or user.can_approve_offers):
+        return JSONResponse({"detail": "当前账号没有此操作权限"}, status_code=403)
     if _foreign_resource(request, user.id):
         return JSONResponse({"detail": "无权访问其他账号的数据"}, status_code=403)
     actor_token = current_actor.set(f"{user.id}:{user.username}")

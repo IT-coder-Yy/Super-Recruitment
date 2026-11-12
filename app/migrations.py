@@ -1,4 +1,4 @@
-"""Demo v1 增量迁移：旧库先备份，只补列／关联，不删除或猜测合并历史。"""
+"""旧库先备份；补充账号归属并重建唯一约束，保留历史记录与关联。"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -10,9 +10,12 @@ import hashlib
 import shutil
 
 from sqlalchemy import Engine, inspect, text
+from sqlalchemy.schema import CreateTable
 
 
 ADDED_COLUMNS = {
+    "users": {"is_active": "BOOLEAN NOT NULL DEFAULT 1", "is_admin": "BOOLEAN NOT NULL DEFAULT 0",
+              "can_approve_offers": "BOOLEAN NOT NULL DEFAULT 0"},
     "interviews": {"meeting_id": "VARCHAR(32)", "meeting_request": "JSON"},
     "jobs": {"recruitment_type": "VARCHAR(20) NOT NULL DEFAULT 'autumn'"},
     "exam_resources": {"job_id": "INTEGER REFERENCES jobs(id)", "request_key": "VARCHAR(64)"},
@@ -22,51 +25,119 @@ ADDED_COLUMNS = {
 }
 
 
+def backup_database(engine: Engine) -> Path | None:
+    """本机维护与结构迁移共用同一份数据库、附件及运行配置备份。"""
+    if engine.dialect.name != "sqlite" or engine.url.database in (None, ":memory:"):
+        return None
+    path = Path(engine.url.database).resolve()
+    if not path.is_file():
+        return None
+    folder = path.parent / "backups"
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = folder / f"{path.stem}-{stamp}-{uuid.uuid4().hex[:8]}.db"
+    with sqlite3.connect(path) as source, sqlite3.connect(backup) as destination:
+        source.backup(destination)
+    assets = backup.with_suffix(".files")
+    assets.mkdir()
+    for name in ("uploads", "runtime.env", "users"):
+        original = path.parent / name
+        if original.is_dir():
+            shutil.copytree(original, assets / name)
+        elif original.is_file():
+            shutil.copy2(original, assets / name)
+    with sqlite3.connect(backup) as source:
+        tables = [row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        counts = {name: source.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] for name in tables if name.replace("_", "").isalnum()}
+    manifest = {"database": backup.name, "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+                "created_at": stamp, "original_database": str(path), "counts": counts,
+                "assets": {str(item.relative_to(assets)): hashlib.sha256(item.read_bytes()).hexdigest() for item in assets.rglob("*") if item.is_file()}}
+    backup.with_suffix(".json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return backup
+
+
 def prepare_upgrade(engine: Engine) -> Path | None:
+    from app.db import Base
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
     if not tables:
         return None
+    added_columns = {name: dict(columns) for name, columns in ADDED_COLUMNS.items()}
+    for table in Base.metadata.tables.values():
+        if "owner_user_id" in table.c:
+            added_columns.setdefault(table.name, {})["owner_user_id"] = "INTEGER REFERENCES users(id)"
     pending = [
         (table, column, ddl)
-        for table, columns in ADDED_COLUMNS.items() if table in tables
+        for table, columns in added_columns.items() if table in tables
         for column, ddl in columns.items()
         if column not in {item["name"] for item in inspector.get_columns(table)}
     ]
     backup = None
-    if (pending or "app_schema_versions" not in tables) and engine.dialect.name == "sqlite" and engine.url.database not in (None, ":memory:"):
-        path = Path(engine.url.database).resolve()
-        folder = path.parent / "backups"
-        folder.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        backup = folder / f"{path.stem}-{stamp}-{uuid.uuid4().hex[:8]}.db"
-        with sqlite3.connect(path) as source, sqlite3.connect(backup) as destination:
-            source.backup(destination)
-        assets = backup.with_suffix(".files")
-        assets.mkdir()
-        for name in ("uploads", "runtime.env", "users"):
-            original = path.parent / name
-            if original.is_dir():
-                shutil.copytree(original, assets / name)
-            elif original.is_file():
-                shutil.copy2(original, assets / name)
-        with sqlite3.connect(backup) as source:
-            counts = {name: source.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] for name in tables if name.replace("_", "").isalnum()}
-        manifest = {"database": backup.name, "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
-                    "created_at": stamp, "original_database": str(path), "counts": counts,
-                    "assets": {str(item.relative_to(assets)): hashlib.sha256(item.read_bytes()).hexdigest() for item in assets.rglob("*") if item.is_file()}}
-        backup.with_suffix(".json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    with engine.connect() as connection:
+        version_pending = "app_schema_versions" not in tables or not connection.scalar(text("SELECT 1 FROM app_schema_versions WHERE version=2"))
+    if (pending or version_pending) and engine.dialect.name == "sqlite" and engine.url.database not in (None, ":memory:"):
+        backup = backup_database(engine)
     with engine.begin() as connection:
         for table, column, ddl in pending:
             connection.exec_driver_sql(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {ddl}')
     return backup
 
 
+def upgrade_account_constraints(engine: Engine) -> None:
+    """SQLite 的表内 UNIQUE 不能直接删除，按官方重建流程保留全部行及索引。"""
+    from app.db import Base
+    inspector = inspect(engine)
+    tables = [name for name in ("candidates", "candidate_sources", "jobs", "exam_resources")
+              if any("owner_user_id" not in item["column_names"] for item in inspector.get_unique_constraints(name))]
+    if not tables:
+        return
+    if engine.dialect.name != "sqlite":
+        raise ValueError("旧库账号隔离迁移目前支持 SQLite")
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        connection.commit()
+        try:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            for name in tables:
+                table = Base.metadata.tables[name]
+                old_columns = {item["name"] for item in inspect(connection).get_columns(name)}
+                if old_columns - set(table.c.keys()):
+                    raise ValueError(f"{name} 含未知字段，停止迁移以保留数据")
+                schema_objects = connection.exec_driver_sql(
+                    "SELECT sql FROM sqlite_master WHERE tbl_name=? AND type IN ('index','trigger') AND sql IS NOT NULL", (name,),
+                ).scalars().all()
+                temporary = name + "__account_upgrade"
+                ddl = str(CreateTable(table).compile(engine))
+                ddl = ddl.replace("CREATE TABLE " + engine.dialect.identifier_preparer.format_table(table), f'CREATE TABLE "{temporary}"', 1)
+                connection.exec_driver_sql(ddl)
+                columns = ", ".join(f'"{column}"' for column in table.c.keys() if column in old_columns)
+                connection.exec_driver_sql(f'INSERT INTO "{temporary}" ({columns}) SELECT {columns} FROM "{name}"')
+                connection.exec_driver_sql(f'DROP TABLE "{name}"')
+                connection.exec_driver_sql(f'ALTER TABLE "{temporary}" RENAME TO "{name}"')
+                for sql in schema_objects:
+                    connection.exec_driver_sql(sql)
+            if connection.exec_driver_sql("PRAGMA foreign_key_check").fetchone():
+                raise ValueError("账号隔离迁移外键检查失败，已回滚")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            connection.commit()
+
+
 def finish_upgrade(engine: Engine) -> list[dict]:
+    from app.db import Base
+    upgrade_account_constraints(engine)
     with engine.begin() as connection:
+        for table in Base.metadata.tables.values():
+            for index in table.indexes:
+                if "owner_user_id" in index.columns:
+                    index.create(connection, checkfirst=True)
         connection.execute(text("""
-            INSERT INTO application_sources (source_id, application_id)
-            SELECT a.source_id, a.id FROM applications a
+            INSERT INTO application_sources (source_id, application_id, owner_user_id)
+            SELECT a.source_id, a.id, a.owner_user_id FROM applications a
             WHERE a.source_id IS NOT NULL AND NOT EXISTS (
                 SELECT 1 FROM application_sources s WHERE s.source_id = a.source_id
             )
@@ -77,10 +148,14 @@ def finish_upgrade(engine: Engine) -> list[dict]:
         """)).mappings()]
         if not duplicates:
             connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_application_candidate_job_idx ON applications(candidate_id, job_id)"))
-        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_exam_resource_request_idx ON exam_resources(request_key)"))
+        existing = inspect(connection).get_indexes("exam_resources")
+        if any(item["name"] == "uq_exam_resource_request_idx" and item["column_names"] == ["request_key"] for item in existing):
+            connection.execute(text("DROP INDEX uq_exam_resource_request_idx"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_exam_resource_request_idx ON exam_resources(owner_user_id, request_key)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_interview_meeting_id_idx ON interviews(meeting_id)"))
         connection.execute(text("CREATE TABLE IF NOT EXISTS app_schema_versions (version INTEGER PRIMARY KEY)"))
         connection.execute(text("INSERT INTO app_schema_versions(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM app_schema_versions WHERE version=1)"))
+        connection.execute(text("INSERT INTO app_schema_versions(version) SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM app_schema_versions WHERE version=2)"))
         if engine.dialect.name == "sqlite" and connection.exec_driver_sql("PRAGMA foreign_key_check").fetchone():
             raise ValueError("迁移后的外键检查未通过，请保留失败副本并从备份恢复")
     return duplicates

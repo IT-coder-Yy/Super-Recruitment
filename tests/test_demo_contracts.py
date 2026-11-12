@@ -56,7 +56,14 @@ def env(tmp_path, monkeypatch):
         response = client.post("/login", data={"username": "demo-hr", "password": "password123", "csrf_token": token})
         assert response.status_code == 200
         csrf = re.search(r'name="csrf-token" content="([^"]+)"', response.text)[1]
-        yield client, {"X-CSRF-Token": csrf}, factory
+        from app.ownership import account_scope
+        with factory.begin() as session:
+            user = session.scalar(select(User).where(User.normalized_username == "demo-hr"))
+            user.is_admin = user.can_approve_offers = True
+            user_id = user.id
+        factory.configure(info={"account_id": user_id})
+        with account_scope(user_id):
+            yield client, {"X-CSRF-Token": csrf}, factory
     main.app.dependency_overrides.clear()
     engine.dispose()
 
@@ -362,7 +369,7 @@ def test_recovery_and_scheduler_without_visiting_pages(env, monkeypatch):
         assert session.scalar(select(FollowUpTask)).status == FollowUpStatus.RESOLVED
     triggered = Event()
     monkeypatch.setenv("FOLLOWUP_ENABLED", "true")
-    monkeypatch.setattr(main, "run_followups", lambda factory: triggered.set())
+    monkeypatch.setattr(main, "run_account_followups", lambda factory: triggered.set())
     with TestClient(main.app):
         assert triggered.wait(3), "应用生命周期没有实际触发调度入口"
 
@@ -658,8 +665,14 @@ def test_csrf_and_two_users_real_audit_actors(env):
         token = re.search(r'name="csrf_token" value="([^"]+)"', second.get("/login").text)[1]
         second.post("/login", data={"username":"second-hr", "password":"password123", "csrf_token":token})
         csrf = re.search(r'name="csrf-token" content="([^"]+)"', second.get("/").text)[1]
-        post(second, {"X-CSRF-Token":csrf}, f"/api/applications/{app.id}/decision", status="assessment_pending", reason="第二位HR")
-    with factory() as session:
+        assert second.post(f"/api/applications/{app.id}/decision", headers={"X-CSRF-Token": csrf}, data={"status": "assessment_pending"}).status_code == 403
+        from app.ownership import account_scope
+        with factory() as session:
+            second_id = session.scalar(select(User.id).where(User.normalized_username == "second-hr"))
+        with account_scope(second_id), factory() as session:
+            other = application(session)
+        post(second, {"X-CSRF-Token":csrf}, f"/api/applications/{other.id}/decision", status="assessment_pending", reason="第二位HR")
+    with account_scope(None), factory(info={"account_id": None}) as session:
         actors = session.scalars(select(AuditLog.actor).where(AuditLog.action=="application.status_changed").order_by(AuditLog.id)).all()
         assert actors[0].endswith(":demo-hr") and actors[1].endswith(":second-hr")
 
@@ -889,7 +902,7 @@ def test_fresh_process_restart_preserves_business_records_and_can_continue(env, 
     before=snapshot()
     file_before=pending.file_path.read_bytes()
     factory.kw["bind"].dispose()
-    environment={**os.environ,"APP_DATA_DIR":str(tmp_path),"APP_RUNTIME_ENV":str(tmp_path/"runtime.env"),"DATABASE_URL":f"sqlite:///{database}","LLM_PROVIDER":"mock","SMTP_HOST":"","WECOM_WEBHOOK_URL":"","FOLLOWUP_ENABLED":"false"}
+    environment={**os.environ,"APP_ENV":"production","APP_DATA_DIR":str(tmp_path),"APP_RUNTIME_ENV":str(tmp_path/"runtime.env"),"DATABASE_URL":f"sqlite:///{database}","LLM_PROVIDER":"mock","SMTP_HOST":"","WECOM_WEBHOOK_URL":"","FOLLOWUP_ENABLED":"false"}
     subprocess.run([sys.executable,"-B","-c","from app.main import startup; startup()"],env=environment,check=True,capture_output=True)
     assert snapshot()==before and pending.file_path.read_bytes()==file_before
     with factory() as session:

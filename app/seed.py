@@ -3,11 +3,16 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db import init_db, session_scope
-from app.models import Application, ApplicationStatus, Evaluation, User
+if __name__ == "__main__":
+    from app.config import ensure_runtime_dirs, reload_env
+    ensure_runtime_dirs()
+    reload_env()
+
+from app.db import SessionLocal, init_db, session_scope
+from app.models import Application, ApplicationStatus, Candidate, Evaluation, User
 from app.schemas import (
     ApplicationCreate,
     CandidateCreate,
@@ -37,7 +42,6 @@ SEED_ACTOR = "seed"
 
 def seed_database(session: Session) -> dict[str, int]:
     now = datetime.now(timezone.utc).replace(microsecond=0)
-    _seed_demo_user(session)
 
     ai_job, ai_v1, _ = get_or_create_job_version(
         session,
@@ -643,18 +647,20 @@ def _seed_internship(session: Session, now: datetime) -> None:
     ), actor="mock_evaluation_agent")
 
 
-def _seed_demo_user(session: Session) -> None:
+def _seed_demo_user(session: Session) -> User:
     normalized = normalize_username("demo-admin")
-    if session.scalar(select(User).where(User.normalized_username == normalized)):
-        return
-    session.add(
-        User(
-            username="demo-admin",
-            normalized_username=normalized,
-            password_hash=hash_password("demo123456"),
-        )
+    existing = session.scalar(select(User).where(User.normalized_username == normalized))
+    if existing:
+        return existing
+    user = User(
+        username="demo-admin",
+        normalized_username=normalized,
+        password_hash=hash_password("demo123456"),
+        is_admin=True, can_approve_offers=True,
     )
+    session.add(user)
     session.flush()
+    return user
 
 
 def _advance(
@@ -692,10 +698,21 @@ def _remaining_path(
     return targets[current_index + 1 :]
 
 
+def initialize_demo(session_factory=SessionLocal) -> dict[str, int]:
+    from app.ownership import account_scope
+    init_db(session_factory.kw["bind"])
+    with account_scope(None), session_scope(session_factory) as session:
+        user = _seed_demo_user(session)
+        user_id = user.id
+    with account_scope(user_id), session_scope(session_factory) as session:
+        existing = session.scalar(select(func.count(Candidate.id))) or 0
+        if existing:
+            return {"candidate_count": existing}
+        return seed_database(session)
+
+
 def main() -> None:
-    init_db()
-    with session_scope() as session:
-        summary = seed_database(session)
+    summary = initialize_demo()
     print(json.dumps({"seed_ready": True, **summary}, ensure_ascii=True))
 
 

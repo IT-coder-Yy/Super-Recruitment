@@ -25,6 +25,7 @@ import app.main as main
 from app.ai.client import LLMClient
 from app.ai.service import _mock_evaluation
 from app.models import *
+from app.ownership import account_scope
 from app.services import imports, offers
 from app.services.candidates import ingest_candidate
 from app.services.evaluations import evaluate_application_record, matching_input
@@ -36,7 +37,7 @@ def restart(factory, tmp_path):
     """启动另一个 Python 进程；只读此测试数据库和隔离配置，禁止外呼。"""
     database = factory.kw['bind'].url.database
     factory.kw['bind'].dispose()
-    environment = {**os.environ, 'APP_DATA_DIR': str(tmp_path), 'APP_RUNTIME_ENV': str(tmp_path/'runtime.env'),
+    environment = {**os.environ, 'APP_ENV': 'production', 'APP_DATA_DIR': str(tmp_path), 'APP_RUNTIME_ENV': str(tmp_path/'runtime.env'),
                    'DATABASE_URL': f'sqlite:///{database}', 'LLM_PROVIDER': 'mock', 'SMTP_HOST': '',
                    'WECOM_WEBHOOK_URL': '', 'FOLLOWUP_ENABLED': 'false'}
     code = "import socket; socket.create_connection=lambda *a,**k: (_ for _ in ()).throw(AssertionError('external call')); from app.main import startup; startup()"
@@ -434,33 +435,38 @@ def test_both_hr_users_all_business_audit_actions(env):
     with TestClient(main.app) as second:
         second_headers = login(second, 'second-hr')
         for client, csrf, name in [(first, headers, 'demo-hr'), (second, second_headers, 'second-hr')]:
-            with factory() as session:
-                record = application(session)
-                offer, values = ready_offer(session)
-                start = session.scalar(select(func.max(AuditLog.id))) or 0
-            post(client, csrf, f'/api/candidates/{record.candidate_id}/profile', version=1, skills='Python, Rust', note='HR 已核实')
-            post(client, csrf, f'/api/applications/{record.id}/decision', status='assessment_pending', reason='HR 核实')
-            for version, kind in enumerate(['assessment', 'written']):
-                rid = paper(client, csrf, record.job_id, kind)
-                post(client, csrf, f'/api/applications/{record.id}/exams/send', resource_id=rid, candidate_revision=2)
-                post(client, csrf, f'/api/applications/{record.id}/exams/decision', kind=kind, result='passed', note='HR 已核实', version=version)
-                post(client, csrf, f'/api/exams/resources/{rid}/delete')
-            post(client, csrf, f'/api/offers/{offer.id}/return', version=1, reason='修订薪资')
-            post(client, csrf, f'/api/offers/{offer.id}/terms', version=1, **{**values, 'salary': '虚构：350 元/天'})
-            post(client, csrf, f'/api/offers/{offer.id}/approve', version=2)
-            post(client, csrf, f'/api/offers/{offer.id}/send')
-            with factory() as session: token = session.get(Offer, offer.id).candidate_token
-            with TestClient(main.app) as candidate:
-                assert candidate.post(f'/offer/{token}/respond', data={'accepted': 'true'}).status_code == 200
-            post(client, csrf, f'/api/applications/{offer.application_id}/onboarding', action='update', version=0,
-                 expected_date=utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(), location='虚构前台', note='HR 核实登记')
-            with factory() as session:
-                logs = session.scalars(select(AuditLog).where(AuditLog.id > start)).all()
-                required = ['candidate.supplemented', 'application.status_changed', 'exam_resource.created', 'exam.dispatched',
-                            'exam.assessment_decided', 'exam.written_decided', 'offer.approved', 'onboarding.update']
-                for action in required:
-                    assert any(log.action == action and log.actor.endswith(':'+name) for log in logs), action
-                assert any(log.actor == '候选人' for log in logs)
+            with factory.begin() as session:
+                user = session.scalar(select(User).where(User.normalized_username == name))
+                user.can_approve_offers = True
+                user_id = user.id
+            with account_scope(user_id):
+                with factory() as session:
+                    record = application(session)
+                    offer, values = ready_offer(session)
+                    start = session.scalar(select(func.max(AuditLog.id))) or 0
+                post(client, csrf, f'/api/candidates/{record.candidate_id}/profile', version=1, skills='Python, Rust', note='HR 已核实')
+                post(client, csrf, f'/api/applications/{record.id}/decision', status='assessment_pending', reason='HR 核实')
+                for version, kind in enumerate(['assessment', 'written']):
+                    rid = paper(client, csrf, record.job_id, kind)
+                    post(client, csrf, f'/api/applications/{record.id}/exams/send', resource_id=rid, candidate_revision=2)
+                    post(client, csrf, f'/api/applications/{record.id}/exams/decision', kind=kind, result='passed', note='HR 已核实', version=version)
+                    post(client, csrf, f'/api/exams/resources/{rid}/delete')
+                post(client, csrf, f'/api/offers/{offer.id}/return', version=1, reason='修订薪资')
+                post(client, csrf, f'/api/offers/{offer.id}/terms', version=1, **{**values, 'salary': '虚构：350 元/天'})
+                post(client, csrf, f'/api/offers/{offer.id}/approve', version=2)
+                post(client, csrf, f'/api/offers/{offer.id}/send')
+                with factory() as session: token = session.get(Offer, offer.id).candidate_token
+                with TestClient(main.app) as candidate:
+                    assert candidate.post(f'/offer/{token}/respond', data={'accepted': 'true'}).status_code == 200
+                post(client, csrf, f'/api/applications/{offer.application_id}/onboarding', action='update', version=0,
+                     expected_date=utc_now().astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(), location='虚构前台', note='HR 核实登记')
+                with factory() as session:
+                    logs = session.scalars(select(AuditLog).where(AuditLog.id > start)).all()
+                    required = ['candidate.supplemented', 'application.status_changed', 'exam_resource.created', 'exam.dispatched',
+                                'exam.assessment_decided', 'exam.written_decided', 'offer.approved', 'onboarding.update']
+                    for action in required:
+                        assert any(log.action == action and log.actor.endswith(':'+name) for log in logs), action
+                    assert any(log.actor == '候选人' for log in logs)
 
 
 def test_every_internal_route_auth_and_csrf_no_writes(env):

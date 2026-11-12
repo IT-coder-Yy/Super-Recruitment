@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from zoneinfo import ZoneInfo
 import secrets
+import re
 import time
 from typing import Any
 
@@ -50,12 +51,14 @@ from app.models import (
     Evaluation,
     ExportRun,
     ExportRunStatus,
+    ExamResource,
     FollowUpStatus,
     FollowUpTask,
     Interview,
     InterviewSlot,
     InterviewSlotStatus,
     InterviewStatus,
+    ImportTask,
     Job,
     Notification,
     NotificationStatus,
@@ -70,6 +73,7 @@ from app.seed import seed_database
 from app.workbench import appointment_time, build_workbench_context
 from app.interview_calendar import build_interview_calendar
 from app.services.auth import current_actor, current_user_id, hash_password, normalize_username, verify_password
+from app.ownership import AccountAccessDenied, account_scope
 from app.services.candidates import normalize_name, normalize_phone, revise_candidate
 from app.services.exporter import export_recruitment_csv, export_recruitment_xlsx
 from app.services.imports import (
@@ -121,7 +125,7 @@ from app.services.workflow import (
 
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
-from app.services.periodic import recover_inflight, run_followups
+from app.services.periodic import recover_inflight, run_account_followups
 
 
 @asynccontextmanager
@@ -130,7 +134,7 @@ async def lifespan(application):
     scheduler = None
     if get_setting("FOLLOWUP_ENABLED", "true").lower() not in {"false", "0", "no"}:
         scheduler = BackgroundScheduler(timezone="UTC")
-        scheduler.add_job(run_followups, "interval", seconds=max(1, int(get_setting("FOLLOWUP_INTERVAL_SECONDS", "900"))),
+        scheduler.add_job(run_account_followups, "interval", seconds=max(1, int(get_setting("FOLLOWUP_INTERVAL_SECONDS", "900"))),
                           args=[SessionLocal], max_instances=1, coalesce=True, next_run_time=datetime.now(timezone.utc))
         scheduler.start()
     application.state.followup_scheduler = scheduler
@@ -213,10 +217,52 @@ def _followup_scope(application_ids):
 
 def startup() -> None:
     init_db()
-    with session_scope() as session:
-        recover_inflight(session)
-        if (session.scalar(select(func.count(Candidate.id))) or 0) == 0:
-            seed_database(session)
+    with account_scope(None), SessionLocal(info={"account_id": None}) as session:
+        empty = not session.scalar(select(func.count(Candidate.id)))
+    if empty:
+        from app.seed import initialize_demo
+        initialize_demo(SessionLocal)
+    with SessionLocal() as session:
+        user_ids = session.scalars(select(User.id)).all()
+    for user_id in user_ids:
+        with account_scope(user_id), session_scope(SessionLocal) as session:
+            recover_inflight(session)
+
+
+@app.exception_handler(AccountAccessDenied)
+async def account_access_denied(request, exc):
+    return JSONResponse({"detail": str(exc)}, status_code=403)
+
+
+def _public_account(path: str) -> int:
+    parts = path.split("/")
+    model, field = (Interview, Interview.booking_token) if parts[1] == "schedule" else (Offer, Offer.candidate_token)
+    with account_scope(None), SessionLocal(info={"account_id": None}) as session:
+        return session.scalar(select(model.owner_user_id).join(User, User.id == model.owner_user_id).where(
+            field == parts[2], User.is_active.is_(True),
+        )) or 0
+
+
+def _foreign_resource(request: Request, user_id: int) -> bool:
+    """直接访问其他账号的 ID 返回 403；列表和关联查询由账号范围统一过滤。"""
+    models = {"candidates": Candidate, "applications": Application, "interviews": Interview,
+              "offers": Offer, "onboarding": OnboardingTask, "follow-ups": FollowUpTask,
+              "notifications": Notification, "import/tasks": ImportTask, "exams/resources": ExamResource}
+    match = re.match(r"^/(?:api/)?(" + "|".join(models) + r")/(\d+)(?:/|$)", request.url.path)
+    targets = [(models[match[1]], int(match[2]))] if match else []
+    for name, model in (("offer_id", Offer), ("application_id", Application), ("job_id", Job), ("resource_id", ExamResource)):
+        value = request.query_params.get(name)
+        if value and value.isdecimal():
+            targets.append((model, int(value)))
+    with account_scope(None), SessionLocal(info={"account_id": None}) as session:
+        for model, record_id in targets:
+            row = session.execute(select(model.owner_user_id).where(model.id == record_id)).first()
+            if row is not None and row[0] != user_id:
+                return True
+    return False
+
+
+
 
 
 @app.middleware("http")
@@ -233,7 +279,9 @@ async def require_authentication(request: Request, call_next):
             return Response("CSRF 校验失败，请刷新页面后重试", status_code=403)
 
     if path in PUBLIC_EXACT_PATHS or path.startswith(PUBLIC_PATH_PREFIXES):
-        return await call_next(request)
+        owner = _public_account(path) if path.startswith(("/schedule/", "/offer/")) else 0
+        with account_scope(owner):
+            return await call_next(request)
 
     user_id = request.session.get("user_id")
     user = None
@@ -241,7 +289,8 @@ async def require_authentication(request: Request, call_next):
         with SessionLocal() as session:
             user = session.get(User, user_id)
 
-    if user is None:
+    if user is None or not user.is_active:
+        request.session.clear()
         if path.startswith("/api/") or path in {"/docs", "/redoc", "/openapi.json"}:
             return JSONResponse({"detail": "请先登录"}, status_code=401)
         return RedirectResponse("/login", status_code=303)
@@ -249,11 +298,16 @@ async def require_authentication(request: Request, call_next):
     request.state.current_user = {
         "id": user.id,
         "username": user.username,
+        "is_admin": user.is_admin,
+        "can_approve_offers": user.is_admin or user.can_approve_offers,
     }
+    if _foreign_resource(request, user.id):
+        return JSONResponse({"detail": "无权访问其他账号的数据"}, status_code=403)
     actor_token = current_actor.set(f"{user.id}:{user.username}")
     user_token = current_user_id.set(user.id)
     try:
-        return await call_next(request)
+        with account_scope(user.id):
+            return await call_next(request)
     finally:
         current_actor.reset(actor_token)
         current_user_id.reset(user_token)
@@ -694,7 +748,7 @@ def login(
             User.normalized_username == normalize_username(username)
         )
     )
-    if user is None or not verify_password(password, user.password_hash):
+    if user is None or not user.is_active or not verify_password(password, user.password_hash):
         _record_login_failure(request, username)
         return templates.TemplateResponse(
             request=request,

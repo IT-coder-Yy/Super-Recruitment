@@ -12,7 +12,7 @@ reload_env()
 from sqlalchemy import select, update
 from app.db import Base, SessionLocal, engine, init_db
 from app.migrations import backup_database
-from app.models import AuditLog, User
+from app.models import AuditLog, Notification, User
 from app.ownership import account_scope
 from app.services.auth import hash_password, normalize_username
 
@@ -38,6 +38,9 @@ def assign_data(session, target: User, *, source: User | None = None) -> dict[st
     """不合并跨账号重名记录；唯一约束冲突时整个交接事务回滚。"""
     if source and source.id == target.id:
         raise ValueError("来源与接收账号不能相同")
+    mails = session.execute(select(Notification.id, Notification.provider_response).where(
+        Notification.owner_user_id == source.id, Notification.channel == "email",
+    )).all() if source else []
     counts = {}
     for table in Base.metadata.sorted_tables:
         if "owner_user_id" not in table.c:
@@ -48,9 +51,15 @@ def assign_data(session, target: User, *, source: User | None = None) -> dict[st
             values["updated_at"] = table.c.updated_at
         result = session.execute(update(table).where(condition).values(**values))
         counts[table.name] = result.rowcount
-    session.add(AuditLog(owner_user_id=target.id, actor="本机账号管理", action="account.data_transferred" if source else "account.legacy_assigned",
+    audit = AuditLog(owner_user_id=target.id, actor="本机账号管理", action="account.data_transferred" if source else "account.legacy_assigned",
                          entity_type="user", entity_id=target.id,
-                         after_data={"source_user_id": source.id if source else None, "counts": counts}))
+                         after_data={"source_user_id": source.id if source else None, "counts": counts})
+    session.add(audit)
+    session.flush()
+    for notification_id, metadata in mails:
+        session.execute(update(Notification).where(Notification.id == notification_id).values(
+            provider_response={**(metadata or {}), "handover_audit_id": audit.id}, updated_at=Notification.updated_at,
+        ))
     return counts
 
 

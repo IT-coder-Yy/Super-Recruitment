@@ -88,6 +88,7 @@ from app.services.imports import (
     build_rule_parse,
 )
 from app.services.offers import (
+    authorize_handover_resend,
     approve_offer,
     save_offer_terms,
     return_offer,
@@ -1202,6 +1203,9 @@ def notifications_page(request: Request, session: Session = Depends(get_db)):
         "notifications",
         notifications=notifications,
         exports=exports,
+        smtp_sender=smtp_settings(request.state.current_user["id"])["SMTP_FROM"],
+        latest_mail_ids=set(session.scalars(select(func.max(Notification.id)).where(Notification.channel == "email")
+            .group_by(Notification.target_type, Notification.target_id, Notification.template))),
     )
 
 
@@ -2557,6 +2561,17 @@ def retry_internal_notification(notification_id: int, session: Session = Depends
                         details={"previous_id": previous.id, "status": notification.status.value})
         session.commit()
         return notification_result(notification)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/notifications/{notification_id}/authorize-resend")
+def authorize_email_resend(notification_id: int, sender: str = Form(...), reason: str = Form(...), session: Session = Depends(get_db)):
+    try:
+        authorize_handover_resend(session, notification_id, sender=sender, reason=reason)
+        session.commit()
+        return {"ok": True, "message": "已确认当前发件邮箱，尚未发送；请回原业务页面重试。", "redirect": "/notifications"}
     except ValueError as exc:
         session.rollback()
         raise HTTPException(409, str(exc)) from exc

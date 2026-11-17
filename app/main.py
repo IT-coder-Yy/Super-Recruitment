@@ -303,8 +303,7 @@ async def require_authentication(request: Request, call_next):
     }
     admin_action = (path.startswith("/api/settings/llm") or path.startswith("/settings/llm")
                     or path == "/settings/wecom" or path == "/settings" and request.method == "POST")
-    approval_action = re.fullmatch(r"/api/offers/\d+/(approve|return)", path)
-    if admin_action and not user.is_admin or approval_action and not (user.is_admin or user.can_approve_offers):
+    if admin_action and not user.is_admin:
         return JSONResponse({"detail": "当前账号没有此操作权限"}, status_code=403)
     if _foreign_resource(request, user.id):
         return JSONResponse({"detail": "无权访问其他账号的数据"}, status_code=403)
@@ -1925,7 +1924,12 @@ def create_offer_api(
         raise HTTPException(422, str(exc)) from exc
 
 
-@app.post("/api/offers/{offer_id}/approve")
+def require_offer_approval(request: Request) -> None:
+    if not request.state.current_user["can_approve_offers"]:
+        raise HTTPException(403, "当前账号没有此操作权限")
+
+
+@app.post("/api/offers/{offer_id}/approve", dependencies=[Depends(require_offer_approval)])
 def approve_offer_api(
     offer_id: int,
     reason: str = Form("单级审批通过"),
@@ -2494,7 +2498,7 @@ async def edit_offer_terms_api(offer_id: int, request: Request, session: Session
         raise HTTPException(409, str(exc)) from exc
 
 
-@app.post("/api/offers/{offer_id}/return")
+@app.post("/api/offers/{offer_id}/return", dependencies=[Depends(require_offer_approval)])
 def return_offer_api(offer_id: int, version: int = Form(...), reason: str = Form(...), session: Session = Depends(get_db)):
     try:
         return_offer(session, offer_id, version=version, reason=reason)

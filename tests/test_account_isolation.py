@@ -125,7 +125,8 @@ def test_cross_account_mutations_are_rejected_before_side_effects(secure_env, pa
         assert session.get(Application, record["application_id"]).status == ApplicationStatus.CAPTURED
 
 
-def test_settings_and_offer_approval_need_explicit_permissions(secure_env):
+@pytest.mark.parametrize("id_format", ["{id}", "+{id}", "%2B{id}", "{id}.0"])
+def test_settings_and_offer_approval_need_explicit_permissions(secure_env, id_format):
     a, b, ha, hb, factory, (aid, bid) = secure_env
     assert b.get("/api/settings/llm").status_code == 403
     assert 'action="/settings"' not in b.get("/settings").text
@@ -141,9 +142,14 @@ def test_settings_and_offer_approval_need_explicit_permissions(secure_env):
         now = utc_now()
         offers.save_offer_terms(session, offer.id, {"company_name": "虚构公司", "job_title": "虚构岗位", "salary": "虚构 300 元/天", "subsidy": "无", "office_location": "虚构办公区", "report_location": "虚构前台", "report_time": (now + timedelta(days=7)).date().isoformat(), "expires_at": (now + timedelta(days=3)).isoformat()}, version=0)
         oid = offer.id
-    path = f"/api/offers/{oid}/approve"
+    path = f"/api/offers/{id_format.format(id=oid)}/approve"
     assert b.post(path, headers=hb, data={"version": 1}).status_code == 403
-    assert a.post(path, headers=ha, data={"version": 1}).status_code == 403
+    assert b.post(path.removesuffix("approve") + "return", headers=hb, data={"version": 1, "reason": "无权退回"}).status_code == 403
+    with factory() as session:
+        assert session.get(Offer, oid).status.value == "pending_approval"
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.entity_type == "offer", AuditLog.entity_id == oid,
+            AuditLog.action.in_(["offer.approved", "offer.returned"]))) == 0
+    assert a.post(f"/api/offers/{oid}/approve", headers=ha, data={"version": 1}).status_code == 403
     assert a.get(f"/offers?offer_id={oid}").status_code == 403
     with factory.begin() as session:
         session.get(User, bid).can_approve_offers = True

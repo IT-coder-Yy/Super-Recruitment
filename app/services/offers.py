@@ -509,13 +509,16 @@ def send_email_notification(
         raise ValueError("原发送邮箱与当前账号配置不同；交接邮件请先在通知中心确认当前发件邮箱，不能自动更换发件人")
     if previous:
         recipient, subject, content = previous.recipient, previous.subject, previous.content
-    delivery = {**sender, "retry_of": previous.id, "handover_audit_id": metadata["handover_audit_id"],
-                "resend_authorization_id": authorization["audit_id"]} if authorized else sender
+    delivery = {**sender, "retry_of": previous.id} if previous else sender
+    if metadata.get("handover_audit_id"):
+        delivery["handover_audit_id"] = metadata["handover_audit_id"]
+    if authorized:
+        delivery["resend_authorization_id"] = authorization["audit_id"]
     notification = Notification(channel="email", recipient=recipient, subject=subject, content=content,
         target_type=target_type, target_id=target_id, template=template, status=NotificationStatus.SENDING,
         provider_response=delivery)
     session.add(notification)
-    if authorized:
+    if previous:
         session.flush()
         previous.provider_response = {**metadata, "retry_id": notification.id}
     session.commit()

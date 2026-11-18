@@ -227,3 +227,43 @@ def test_handover_retry_link_reaches_record_across_recruitment_filters(handover,
     foreign = case["a"].get(href)
     assert foreign.status_code == 403 or (
         "暂无发放记录" in foreign.text if kind == "exam" else f'action="{case["url"]}"' not in foreign.text)
+
+
+@pytest.mark.parametrize("kind", ["offer", "exam", "interview"])
+def test_repeated_handover_failures_keep_history_and_allow_fresh_confirmation(handover, kind):
+    case = handover(kind)
+    assert confirm(case).status_code == 200
+    previous_id = case["nid"]
+    with case["factory"]() as session:
+        handover_id = session.get(Notification, previous_id).provider_response["handover_audit_id"]
+    for _ in range(3):
+        response = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+        assert response.status_code == 200
+        latest_id = response.json()["notification_id"]
+        with case["factory"]() as session:
+            previous, latest = session.get(Notification, previous_id), session.get(Notification, latest_id)
+            assert latest.status == NotificationStatus.FAILED
+            assert latest.provider_response["handover_audit_id"] == handover_id
+            assert latest.provider_response["retry_of"] == previous.id
+            assert previous.provider_response["retry_id"] == latest.id
+            assert (latest.recipient, latest.subject, latest.content) == (previous.recipient, previous.subject, previous.content)
+        previous_id = latest_id
+    assert confirm(case).status_code == 409
+    case["nid"] = latest_id
+    assert f'/api/notifications/{latest_id}/authorize-resend' in case["b"].get("/notifications").text
+    config.save_smtp_settings(user_id=case["bid"], host="smtp.example.test", port=465, use_ssl=True,
+        username="changed@example.test", password="synthetic-smtp-secret", from_address="changed@example.test")
+    assert case["b"].post(case["url"], headers=case["hb"], data=case["values"]).status_code in {409, 422}
+    assert len(case["attempts"]) == 4
+    assert confirm(case).status_code == 200
+    case["delivery"][0] = True
+    sent = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+    repeated = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+    assert sent.status_code == repeated.status_code == 200
+    assert sent.json()["notification_id"] == repeated.json()["notification_id"]
+    assert len(case["attempts"]) == 5 and len(case["messages"]) == 1
+    with case["factory"]() as session:
+        latest = session.get(Notification, sent.json()["notification_id"])
+        assert latest.status == NotificationStatus.SENT
+        assert latest.provider_response["smtp_from"] == "changed@example.test"
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "notification.resend_authorized")) == 2

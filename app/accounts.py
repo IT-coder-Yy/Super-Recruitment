@@ -12,7 +12,7 @@ reload_env()
 from sqlalchemy import select, update
 from app.db import Base, SessionLocal, engine, init_db
 from app.migrations import backup_database
-from app.models import AuditLog, Notification, User
+from app.models import AuditLog, Notification, NotificationStatus, User
 from app.ownership import account_scope
 from app.services.auth import hash_password, normalize_username
 
@@ -34,16 +34,24 @@ def create_account(session, username: str, password: str, *, admin=False, approv
     return user
 
 
-def assign_data(session, target: User, *, source: User | None = None) -> dict[str, int]:
+def assign_data(session, target: User, *, source: User | None = None,
+                confirmed_mail_ids: list[int] | None = None) -> dict[str, int]:
     """不合并跨账号重名记录；唯一约束冲突时整个交接事务回滚。"""
     if source and source.id == target.id:
         raise ValueError("来源与接收账号不能相同")
-    mails = session.execute(select(Notification.id, Notification.provider_response).where(
+    confirmed_mail_ids = sorted(set(confirmed_mail_ids or []))
+    mails = [] if confirmed_mail_ids else session.execute(select(Notification.id, Notification.provider_response).where(
         Notification.owner_user_id == (source.id if source else None), Notification.channel == "email",
     )).all()
+    for notification_id in confirmed_mail_ids:
+        mail = session.get(Notification, notification_id)
+        if (source or not mail or mail.owner_user_id != target.id or mail.channel != "email"
+                or mail.status != NotificationStatus.FAILED or (mail.provider_response or {}).get("handover_audit_id")):
+            raise ValueError("仅可补录已分配给目标账号、尚无交接标记的失败邮件")
+        mails.append((mail.id, mail.provider_response))
     counts = {}
     for table in Base.metadata.sorted_tables:
-        if "owner_user_id" not in table.c:
+        if confirmed_mail_ids or "owner_user_id" not in table.c:
             continue
         condition = table.c.owner_user_id == source.id if source else table.c.owner_user_id.is_(None)
         values = {"owner_user_id": target.id}
@@ -53,7 +61,8 @@ def assign_data(session, target: User, *, source: User | None = None) -> dict[st
         counts[table.name] = result.rowcount
     audit = AuditLog(owner_user_id=target.id, actor="本机账号管理", action="account.data_transferred" if source else "account.legacy_assigned",
                          entity_type="user", entity_id=target.id,
-                         after_data={"source_user_id": source.id if source else None, "counts": counts})
+                         after_data={"source_user_id": source.id if source else None, "counts": counts,
+                                     "confirmed_notification_ids": confirmed_mail_ids})
     session.add(audit)
     session.flush()
     for notification_id, metadata in mails:
@@ -85,6 +94,8 @@ def main() -> None:
     reset.add_argument("username")
     legacy = commands.add_parser("assign-legacy", help="将尚无归属的历史数据交给指定账号")
     legacy.add_argument("username")
+    legacy.add_argument("--confirm-assigned-mail", type=int, action="append", default=[],
+                        help="仅补录指定已分配失败邮件的分配审计，可重复指定；不分配其他资料、不发信")
     transfer = commands.add_parser("transfer", help="将一个账号的全部招聘数据交接给另一账号")
     transfer.add_argument("source_username")
     transfer.add_argument("username")
@@ -106,7 +117,8 @@ def main() -> None:
                     source = session.scalar(select(User).where(User.normalized_username == normalize_username(args.source_username)))
                     if source is None:
                         raise ValueError("来源账号不存在")
-                counts = assign_data(session, user, source=source)
+                counts = assign_data(session, user, source=source,
+                                     confirmed_mail_ids=args.confirm_assigned_mail if args.command == "assign-legacy" else None)
             elif args.command == "reset-password":
                 user.password_hash, user.is_active = hash_password(password), True
                 session.add(AuditLog(owner_user_id=user.id, actor="本机账号管理", action="account.password_reset", entity_type="user", entity_id=user.id))
@@ -120,6 +132,8 @@ def main() -> None:
                                      entity_type="user", entity_id=user.id, before_data=before, after_data=changes))
     if counts is not None:
         print("迁移行数：", counts)
+    if args.command == "assign-legacy" and args.confirm_assigned_mail:
+        print("已补录邮件：", args.confirm_assigned_mail)
     print("已完成。备份：", backup or "内存库无需备份")
 
 

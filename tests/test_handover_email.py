@@ -6,12 +6,14 @@ from html import unescape
 import json
 import re
 import smtplib
+import sys
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
-from app import config
+from app import accounts, config
 from app.accounts import assign_data
+from app.db import Base, init_db
 from app.models import ApplicationStatus, AuditLog, ExamDispatch, ExamResource, Interview, Notification, NotificationStatus, Offer, User, utc_now
 from app.ownership import account_scope
 from app.services import offers
@@ -267,3 +269,78 @@ def test_repeated_handover_failures_keep_history_and_allow_fresh_confirmation(ha
         assert latest.status == NotificationStatus.SENT
         assert latest.provider_response["smtp_from"] == "changed@example.test"
         assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "notification.resend_authorized")) == 2
+
+
+@pytest.mark.parametrize("kind", ["offer", "exam", "interview"])
+@pytest.mark.parametrize("already_assigned", [False, True])
+def test_legacy_assignment_cli_allows_controlled_resend(handover, monkeypatch, kind, already_assigned):
+    case = handover(kind, transfer=False)
+    with case["factory"].begin() as session:
+        for table in Base.metadata.sorted_tables:
+            if "owner_user_id" in table.c:
+                session.execute(update(table).values(owner_user_id=None))
+    engine = case["factory"].kw["bind"]
+    monkeypatch.setattr(accounts, "engine", engine)
+    monkeypatch.setattr(accounts, "SessionLocal", case["factory"])
+    monkeypatch.setattr(accounts, "init_db", lambda: init_db(engine))
+    command = ["accounts", "assign-legacy", "owner-b"]
+    monkeypatch.setattr(sys, "argv", command)
+    accounts.main()
+    if already_assigned:
+        # 模拟旧版本已分配但未记录邮件来源，普通 assign-legacy 不得自动补授权。
+        with case["factory"].begin() as session:
+            session.get(Notification, case["nid"]).provider_response = case["original"]
+        accounts.main()
+        assert confirm(case).status_code == 409
+        with case["factory"].begin() as session:
+            unassigned = Notification(channel="email", status=NotificationStatus.FAILED, content="未分配对照",
+                                      provider_response=case["original"])
+            session.add(unassigned)
+            session.flush()
+            unassigned_id = unassigned.id
+        monkeypatch.setattr(sys, "argv", command + ["--confirm-assigned-mail", str(case["nid"])])
+        accounts.main()
+    assert case["b"].post(case["url"], headers=case["hb"], data=case["values"]).status_code in {409, 422}
+    assert confirm(case).status_code == 200
+    assert len(case["attempts"]) == 1
+    with case["factory"]() as session:
+        old = session.get(Notification, case["nid"])
+        assert all(old.provider_response[key] == value for key, value in case["original"].items())
+        audit = session.get(AuditLog, old.provider_response["handover_audit_id"])
+        assert audit.action == "account.legacy_assigned" and audit.entity_id == case["bid"]
+        if already_assigned:
+            assert audit.after_data["confirmed_notification_ids"] == [case["nid"]]
+            assert audit.after_data["counts"] == {}
+            untouched = session.get(Notification, unassigned_id)
+            assert untouched.owner_user_id is None and untouched.provider_response == case["original"]
+    case["delivery"][0] = True
+    sent = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+    assert sent.status_code == 200 and len(case["messages"]) == 1
+    with case["factory"]() as session:
+        assert session.get(Notification, sent.json()["notification_id"]).status == NotificationStatus.SENT
+
+
+@pytest.mark.parametrize("invalid", ["missing", "foreign_owner", "unassigned", "unknown", "sent", "channel", "already_marked"])
+def test_legacy_mail_confirmation_rejects_invalid_records_atomically(handover, invalid):
+    case = handover()
+    with case["factory"].begin() as session:
+        old = session.get(Notification, case["nid"])
+        if invalid != "already_marked":
+            old.provider_response = case["original"]
+        if invalid in {"foreign_owner", "unassigned"}:
+            old.owner_user_id = case["aid"] if invalid == "foreign_owner" else None
+        elif invalid in {"unknown", "sent"}:
+            old.status = NotificationStatus(invalid)
+        elif invalid == "channel":
+            old.channel = "wecom"
+        valid = Notification(owner_user_id=case["bid"], channel="email", status=NotificationStatus.FAILED,
+                             content="虚构补录对照", provider_response=case["original"])
+        session.add(valid)
+        session.flush()
+        valid_id = valid.id
+    with pytest.raises(ValueError), case["factory"].begin() as session:
+        assign_data(session, session.get(User, case["bid"]),
+                    confirmed_mail_ids=[valid_id, 999999 if invalid == "missing" else case["nid"]])
+    with case["factory"]() as session:
+        assert session.get(Notification, valid_id).provider_response == case["original"]
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "account.legacy_assigned")) == 0

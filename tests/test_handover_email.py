@@ -2,7 +2,9 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
+from html import unescape
 import json
+import re
 import smtplib
 
 import pytest
@@ -205,3 +207,23 @@ def test_second_handover_requires_receiver_to_confirm_again(handover):
     result = case["a"].post(f"/api/notifications/{case['nid']}/authorize-resend", headers=case["ha"],
                            data={"sender": "receiver@example.test", "reason": "再次交接"})
     assert result.status_code == 200
+
+
+@pytest.mark.parametrize("kind", ["offer", "exam", "interview"])
+@pytest.mark.parametrize("record_type, current_filter", [("autumn", "internship"), ("internship", "autumn")])
+def test_handover_retry_link_reaches_record_across_recruitment_filters(handover, kind, record_type, current_filter):
+    case = handover(kind)
+    with case["factory"].begin() as session:
+        model = {"offer": Offer, "exam": ExamDispatch, "interview": Interview}[kind]
+        session.get(model, case["target_id"]).application.job.recruitment_type = record_type
+    page = case["b"].get("/notifications?recruitment_type=" + current_filter)
+    href = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', page.text)[1])
+    target = case["b"].get(href)
+    assert target.status_code == 200
+    if kind == "exam":
+        assert "暂无发放记录" not in target.text
+    else:
+        assert f'action="{case["url"]}"' in target.text
+    foreign = case["a"].get(href)
+    assert foreign.status_code == 403 or (
+        "暂无发放记录" in foreign.text if kind == "exam" else f'action="{case["url"]}"' not in foreign.text)

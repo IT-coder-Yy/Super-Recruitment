@@ -39,8 +39,8 @@ def assign_data(session, target: User, *, source: User | None = None) -> dict[st
     if source and source.id == target.id:
         raise ValueError("来源与接收账号不能相同")
     mails = session.execute(select(Notification.id, Notification.provider_response).where(
-        Notification.owner_user_id == source.id, Notification.channel == "email",
-    )).all() if source else []
+        Notification.owner_user_id == (source.id if source else None), Notification.channel == "email",
+    )).all()
     counts = {}
     for table in Base.metadata.sorted_tables:
         if "owner_user_id" not in table.c:

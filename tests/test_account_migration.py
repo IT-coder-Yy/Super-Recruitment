@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.accounts import assign_data, create_account
 from app.db import Base, create_db_engine, init_db
-from app.models import Candidate, User
+from app.models import AuditLog, Candidate, Notification, User
 from app.ownership import account_scope
 from app.services.candidates import get_or_create_candidate
 from app.services.auth import hash_password
@@ -47,6 +47,8 @@ def test_upgrade_preserves_legacy_data_and_account_dedup(tmp_path):
         connection.execute(old.tables["job_versions"].insert(), {"id": 1, "job_id": 1, "version_number": 1, "version_hash": "synthetic-hash", "jd_raw": "Python"})
         connection.execute(old.tables["candidate_sources"].insert(), {"id": 1, "candidate_id": 1, "platform": "file", "source_application_id": "legacy-source", "raw_resume": "历史原始简历"})
         connection.execute(old.tables["applications"].insert(), {"id": 1, "candidate_id": 1, "job_id": 1, "job_version_id": 1, "source_id": 1})
+        connection.execute(old.tables["notifications"].insert(), {"id": 1, "channel": "email", "status": "failed",
+            "content": "历史失败邮件", "provider_response": {"smtp_source": "personal", "smtp_owner_id": 2, "smtp_from": "former@example.test"}})
     uploads = tmp_path / "uploads"
     uploads.mkdir()
     (uploads / "resume.txt").write_text("历史原始简历", encoding="utf-8")
@@ -80,6 +82,11 @@ def test_upgrade_preserves_legacy_data_and_account_dedup(tmp_path):
         assert original.sources[0].raw_resume == "历史原始简历"
         assert original.applications[0].job.title == "历史岗位"
         assert original.applications[0].source_links[0].owner_user_id == 1
+        mail = session.get(Notification, 1)
+        assert mail.owner_user_id == 1 and mail.provider_response["smtp_owner_id"] == 2
+        assert mail.provider_response["smtp_from"] == "former@example.test" and mail.content == "历史失败邮件"
+        audit = session.get(AuditLog, mail.provider_response["handover_audit_id"])
+        assert audit.action == "account.legacy_assigned" and audit.entity_id == 1
     with account_scope(other_id), factory.begin() as session:
         own, created = get_or_create_candidate(session, {"name": "历史虚构人", "phone": "13900007771"})
         assert created and own.id != 1

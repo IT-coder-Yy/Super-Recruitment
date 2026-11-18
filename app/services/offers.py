@@ -458,7 +458,7 @@ def authorize_handover_resend(session: Session, notification_id: int, *, sender:
     metadata = previous.provider_response or {}
     handover = session.get(AuditLog, metadata["handover_audit_id"]) if metadata.get("handover_audit_id") else None
     if (previous.channel != "email" or previous.status != NotificationStatus.FAILED
-            or not handover or handover.action != "account.data_transferred"
+            or not handover or handover.action not in {"account.data_transferred", "account.legacy_assigned"}
             or handover.entity_id != current_user_id.get() or previous.owner_user_id != current_user_id.get()):
         raise ValueError("仅可确认交接给当前账号、且已明确失败的邮件")
     latest = session.scalar(select(Notification.id).where(Notification.channel == "email",

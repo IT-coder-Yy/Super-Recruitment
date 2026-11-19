@@ -442,3 +442,32 @@ def test_old_offer_retry_opens_exact_detail_beyond_list_limit(handover):
     assert button in case["b"].get(f'/offers?offer_id={case["target_id"]}&recruitment_type=autumn').text
     assert target.status_code == 200 and button in target.text
     assert case["a"].get(href).status_code == 403
+
+
+def test_exam_retry_keeps_original_paper_through_preview_and_send(handover):
+    case = handover("exam")
+    with account_scope(case["bid"]), case["factory"].begin() as session:
+        dispatch = session.get(ExamDispatch, case["target_id"])
+        application_id, resource_id, url = dispatch.application_id, dispatch.resource_id, dispatch.snapshot["url"]
+        session.add(ExamResource(job_id=dispatch.application.job_id, kind=dispatch.kind, title="第二份试卷",
+                                 url="https://exam.example.test/second"))
+    assert confirm(case).status_code == 200
+    html = case["b"].get("/notifications").text
+    href = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', html)[1])
+    landing = case["b"].get(href)
+    defaults = {}
+    for field in ("application_id", "resource_id"):
+        selector = re.search(fr'<select[^>]*name="{field}"[^>]*>(.*?)</select>', landing.text, re.S)
+        options = re.findall(r'<option value="(\d+)"([^>]*)>', selector[1])
+        defaults[field] = next((value for value, attrs in options if "selected" in attrs), options[0][0])
+    preview = case["b"].get("/exams", params=defaults)
+    form = re.search(r'<form method="post" action="([^"]+/exams/send)">(.*?)</form>', preview.text, re.S)
+    case["delivery"][0] = True
+    sent = case["b"].post(form[1], headers=case["hb"], data=dict(re.findall(r'name="([^"]+)" value="([^"]+)"', form[2])))
+    assert sent.status_code == 200 and len(case["messages"]) == 1
+    assert url in case["messages"][0].get_content()
+    assert f"application_id={application_id}" in href and f"resource_id={resource_id}" in href
+    assert f'action="{case["url"]}"' in landing.text
+    with case["factory"]() as session:
+        assert session.get(Notification, sent.json()["notification_id"]).target_id == case["target_id"]
+        assert session.scalar(select(func.count(ExamDispatch.id))) == 1

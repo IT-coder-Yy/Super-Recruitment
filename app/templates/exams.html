@@ -23,7 +23,7 @@
 <section class="work-surface"><header class="surface-header"><h2>预览与发放</h2></header><div class="surface-body stack-sm">
 <form method="get" action="/exams" class="form-grid">
 <label class="field">对应投递<select class="select" name="application_id" required>{% for a in applications %}<option value="{{ a.id }}" {% if selected_application and selected_application.id == a.id %}selected{% endif %}>#{{ a.id }} {{ a.candidate.name }} · {{ a.job.title }} · {{ status_labels[a.status.value] }}</option>{% endfor %}</select></label>
-<label class="field">试卷<select class="select" name="resource_id" required>{% for r in resources if r.active %}<option value="{{ r.id }}">岗位 #{{ r.job_id or "历史未指定" }} · {{ kinds[r.kind][0] }} · {{ r.title }}</option>{% endfor %}</select></label>
+<label class="field">试卷<select class="select" name="resource_id" required>{% for r in resources if r.active or r == selected_resource %}<option value="{{ r.id }}"{% if r == selected_resource %} selected{% endif %}{% if not r.active %} disabled{% endif %}>岗位 #{{ r.job_id or "历史未指定" }} · {{ kinds[r.kind][0] }} · {{ r.title }}{% if not r.active %}（已停用）{% endif %}</option>{% endfor %}</select></label>
 <button class="button" type="submit">预览邮件</button></form>
 {% if preview_error %}<p class="notice notice-warning">{{ preview_error }}</p>{% endif %}
 {% if preview %}<p>收件人：{{ preview.recipient }}　主题：{{ preview.subject }}</p><pre>{{ preview.content }}</pre>

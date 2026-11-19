@@ -1186,13 +1186,14 @@ def onboarding_page(request: Request, session: Session = Depends(get_db)):
 
 @app.get("/notifications")
 def notifications_page(request: Request, before_id: int | None = None, session: Session = Depends(get_db)):
-    query = select(Notification)
+    query = select(Notification, ExamDispatch).outerjoin(ExamDispatch,
+        (Notification.target_type == "exam_dispatch") & (Notification.target_id == ExamDispatch.id))
     if before_id is not None:
         anchor = session.get(Notification, before_id)
         if anchor is None:
             raise HTTPException(404, "未找到通知记录")
         query = query.where(tuple_(Notification.created_at, Notification.id) <= (anchor.created_at, anchor.id))
-    notifications = session.scalars(query.order_by(Notification.created_at.desc(), Notification.id.desc()).limit(201)).all()
+    notifications = session.execute(query.order_by(Notification.created_at.desc(), Notification.id.desc()).limit(201)).all()
     exports = session.scalars(
         select(ExportRun).order_by(desc(ExportRun.created_at)).limit(20)
     ).all()
@@ -1202,7 +1203,7 @@ def notifications_page(request: Request, before_id: int | None = None, session: 
         "notifications.html",
         "notifications",
         notifications=notifications[:200], before_id=before_id,
-        older_id=notifications[200].id if len(notifications) > 200 else None,
+        older_id=notifications[200][0].id if len(notifications) > 200 else None,
         exports=exports,
         smtp_sender=smtp_settings(request.state.current_user["id"])["SMTP_FROM"],
         latest_mail_ids=set(session.scalars(select(func.max(Notification.id)).where(Notification.channel == "email")
@@ -2378,7 +2379,7 @@ def exams_page(request: Request, application_id: int | None = None, resource_id:
         resources=session.scalars(select(ExamResource).where(resource_scope if recruitment_type != "all" else True).order_by(ExamResource.id.desc())).all(),
         jobs=session.scalars(select(Job).where(job_scope).order_by(Job.id)).all(),
         applications=session.scalars(select(Application).where(Application.id.in_(application_ids), Application.status.in_([ApplicationStatus.ASSESSMENT_PENDING, ApplicationStatus.WRITTEN_PENDING]))).all(),
-        selected_application=application, preview=preview, preview_error=preview_error, resource_request_key=secrets.token_hex(16),
+        selected_application=application, selected_resource=resource, preview=preview, preview_error=preview_error, resource_request_key=secrets.token_hex(16),
         dispatches=[{"record": d, "notification": exams.dispatch_notification(session, d.id)} for d in dispatches])
 
 

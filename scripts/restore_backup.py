@@ -18,7 +18,7 @@ def restore(backup: Path, destination: Path) -> Path:
         if not path.is_relative_to(assets.resolve()) or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise ValueError("附件备份哈希不匹配或路径越界")
     # 先核对所有附件引用，避免失败时留下仍指向原目录的“恢复库”。
-    original_uploads = Path(manifest["original_database"]).parent / "uploads"
+    original_uploads = Path(manifest.get("original_uploads", Path(manifest["original_database"]).parent / "uploads"))
     archived_paths = {Path(value).as_posix() for value in manifest["assets"]}
     relocations = []
     with sqlite3.connect(backup) as source:

@@ -136,7 +136,7 @@ def test_handover_confirmation_rejects_invalid_authorization(handover, invalid):
             old.provider_response = case["original"]
         elif invalid == "wrong_audit":
             audit = session.scalar(select(AuditLog).where(AuditLog.action == "account.created"))
-            old.provider_response = {**old.provider_response, "handover_audit_id": audit.id}
+            old.provider_response = {**old.provider_response, "current_handover_audit_id": audit.id}
         elif invalid == "stale_attempt":
             session.add(Notification(owner_user_id=case["bid"], channel="email", status=NotificationStatus.FAILED,
                 content=old.content, target_type=old.target_type, target_id=old.target_id, template=old.template))
@@ -237,7 +237,7 @@ def test_repeated_handover_failures_keep_history_and_allow_fresh_confirmation(ha
     assert confirm(case).status_code == 200
     previous_id = case["nid"]
     with case["factory"]() as session:
-        handover_id = session.get(Notification, previous_id).provider_response["handover_audit_id"]
+        handover_id = session.get(Notification, previous_id).current_handover_audit_id
     for _ in range(3):
         response = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
         assert response.status_code == 200
@@ -306,7 +306,7 @@ def test_legacy_assignment_cli_allows_controlled_resend(handover, monkeypatch, k
     with case["factory"]() as session:
         old = session.get(Notification, case["nid"])
         assert all(old.provider_response[key] == value for key, value in case["original"].items())
-        audit = session.get(AuditLog, old.provider_response["handover_audit_id"])
+        audit = session.get(AuditLog, old.current_handover_audit_id)
         assert audit.action == "account.legacy_assigned" and audit.entity_id == case["bid"]
         if already_assigned:
             assert audit.after_data["confirmed_notification_ids"] == [case["nid"]]
@@ -344,3 +344,26 @@ def test_legacy_mail_confirmation_rejects_invalid_records_atomically(handover, i
     with case["factory"]() as session:
         assert session.get(Notification, valid_id).provider_response == case["original"]
         assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "account.legacy_assigned")) == 0
+
+
+def test_return_transfer_keeps_the_handover_used_by_each_attempt(handover):
+    case = handover()
+    assert confirm(case).status_code == 200
+    for _ in range(2):
+        assert case["b"].post(case["url"], headers=case["hb"]).status_code == 200
+    query = select(Notification).where(Notification.channel == "email").order_by(Notification.id)
+    with case["factory"].begin() as session:
+        attempts = session.scalars(query).all()
+        assert len(attempts) == 3
+        history = [{k: v for k, v in n.provider_response.items() if k != "current_handover_audit_id"} for n in attempts]
+        assert "handover_audit_id" not in history[0]
+        authorization = session.get(AuditLog, attempts[1].provider_response["resend_authorization_id"])
+        original_handover = authorization.details["handover_audit_id"]
+        assert all(n.provider_response["handover_audit_id"] == original_handover for n in attempts[1:])
+        assign_data(session, session.get(User, case["aid"]), source=session.get(User, case["bid"]))
+    with case["factory"]() as session:
+        attempts = session.scalars(query).all()
+        assert [{k: v for k, v in n.provider_response.items() if k != "current_handover_audit_id"} for n in attempts] == history
+        current = session.scalar(select(func.max(AuditLog.id)).where(AuditLog.action == "account.data_transferred"))
+        assert current != original_handover
+        assert all(n.owner_user_id == case["aid"] and n.current_handover_audit_id == current for n in attempts)

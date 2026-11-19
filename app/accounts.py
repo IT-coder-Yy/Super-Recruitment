@@ -46,7 +46,7 @@ def assign_data(session, target: User, *, source: User | None = None,
     for notification_id in confirmed_mail_ids:
         mail = session.get(Notification, notification_id)
         if (source or not mail or mail.owner_user_id != target.id or mail.channel != "email"
-                or mail.status != NotificationStatus.FAILED or (mail.provider_response or {}).get("handover_audit_id")):
+                or mail.status != NotificationStatus.FAILED or mail.current_handover_audit_id):
             raise ValueError("仅可补录已分配给目标账号、尚无交接标记的失败邮件")
         mails.append((mail.id, mail.provider_response))
     counts = {}
@@ -67,7 +67,7 @@ def assign_data(session, target: User, *, source: User | None = None,
     session.flush()
     for notification_id, metadata in mails:
         session.execute(update(Notification).where(Notification.id == notification_id).values(
-            provider_response={**(metadata or {}), "handover_audit_id": audit.id}, updated_at=Notification.updated_at,
+            provider_response={**(metadata or {}), "current_handover_audit_id": audit.id}, updated_at=Notification.updated_at,
         ))
     return counts
 

@@ -456,7 +456,8 @@ def _smtp_sender(config: dict) -> dict:
 def authorize_handover_resend(session: Session, notification_id: int, *, sender: str, reason: str) -> None:
     previous = lock_record(session, Notification, notification_id)
     metadata = previous.provider_response or {}
-    handover = session.get(AuditLog, metadata["handover_audit_id"]) if metadata.get("handover_audit_id") else None
+    handover_id = previous.current_handover_audit_id
+    handover = session.get(AuditLog, handover_id) if handover_id else None
     if (previous.channel != "email" or previous.status != NotificationStatus.FAILED
             or not handover or handover.action not in {"account.data_transferred", "account.legacy_assigned"}
             or handover.entity_id != current_user_id.get() or previous.owner_user_id != current_user_id.get()):
@@ -500,9 +501,10 @@ def send_email_notification(
     smtp_config = smtp_settings(current_user_id.get())
     sender = _smtp_sender(smtp_config)
     metadata = (previous.provider_response or {}) if previous else {}
+    handover_id = previous.current_handover_audit_id if previous else None
     authorization = metadata.get("resend_authorization") or {}
     authorized = (authorization.get("user_id") == current_user_id.get() and authorization.get("sender") == sender
-                  and authorization.get("handover_audit_id") == metadata.get("handover_audit_id"))
+                  and authorization.get("handover_audit_id") == handover_id)
     if previous and "smtp_source" in (previous.provider_response or {}) and any(
         previous.provider_response.get(key) != value for key, value in sender.items()
     ) and not authorized:
@@ -510,8 +512,8 @@ def send_email_notification(
     if previous:
         recipient, subject, content = previous.recipient, previous.subject, previous.content
     delivery = {**sender, "retry_of": previous.id} if previous else sender
-    if metadata.get("handover_audit_id"):
-        delivery["handover_audit_id"] = metadata["handover_audit_id"]
+    if handover_id:
+        delivery.update(handover_audit_id=handover_id, current_handover_audit_id=handover_id)
     if authorized:
         delivery["resend_authorization_id"] = authorization["audit_id"]
     notification = Notification(channel="email", recipient=recipient, subject=subject, content=content,

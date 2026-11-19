@@ -89,7 +89,7 @@ def test_upgrade_preserves_legacy_data_and_account_dedup(tmp_path, monkeypatch):
         mail = session.get(Notification, 1)
         assert mail.owner_user_id == 1 and mail.provider_response["smtp_owner_id"] == 2
         assert mail.provider_response["smtp_from"] == "former@example.test" and mail.content == "历史失败邮件"
-        audit = session.get(AuditLog, mail.provider_response["handover_audit_id"])
+        audit = session.get(AuditLog, mail.current_handover_audit_id)
         assert audit.action == "account.legacy_assigned" and audit.entity_id == 1
     with account_scope(other_id), factory.begin() as session:
         own, created = get_or_create_candidate(session, {"name": "历史虚构人", "phone": "13900007771"})

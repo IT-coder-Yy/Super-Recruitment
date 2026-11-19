@@ -694,6 +694,12 @@ class Notification(AccountOwned, TimestampMixin, Base):
     provider_response: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error_message: Mapped[str | None] = mapped_column(Text)
 
+    @property
+    def current_handover_audit_id(self) -> int | None:
+        metadata = self.provider_response or {}
+        # 旧通知曾用同一个字段记录当前交接和发送时的交接。
+        return metadata.get("current_handover_audit_id") or metadata.get("handover_audit_id")
+
 
 class ExportRun(AccountOwned, TimestampMixin, Base):
     __tablename__ = "export_runs"

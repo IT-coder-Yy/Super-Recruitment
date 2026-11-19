@@ -12,8 +12,8 @@
       {% for item in notifications %}
       <tr><td>{{ item.channel }}</td><td>{{ item.recipient or '内部' }}</td><td>{{ item.subject or item.template }}<details><summary>邮件与结果</summary><pre>{{ item.content }}</pre><p>{{ item.error_message or '' }}</p>
 {% if item.status.value == 'unknown' %}<form method="post" action="/api/notifications/{{ item.id }}/verify"><label>核实结果<select class="select" name="delivered"><option value="true">已送达</option><option value="false">确认未送达，可重试</option></select></label><label>核实依据<input class="input" name="note" required></label><button class="button" type="submit">保存核实</button></form>{% endif %}
-{% if item.channel == 'email' and item.status.value == 'failed' and item.id in latest_mail_ids and (item.provider_response or {}).get('handover_audit_id') %}
-<p>交接前发件邮箱：{{ (item.provider_response or {}).get('smtp_from') or '未记录' }}。确认当前邮箱后，再回原业务页面重试；原发送记录会保留。</p>
+{% if item.channel == 'email' and item.status.value == 'failed' and item.id in latest_mail_ids and item.current_handover_audit_id %}
+<p>上次尝试的发件邮箱：{{ (item.provider_response or {}).get('smtp_from') or '未记录' }}。确认当前邮箱后，再回原业务页面重试；原发送记录会保留。</p>
 {% if smtp_sender %}<form method="post" action="/api/notifications/{{ item.id }}/authorize-resend"><input type="hidden" name="sender" value="{{ smtp_sender }}"><p>当前发件邮箱：{{ smtp_sender }}</p><label>重发原因<input class="input" name="reason" required></label><button class="button" type="submit">确认使用当前邮箱（暂不发送）</button></form>{% else %}<a href="/settings#mail">先配置当前发件邮箱</a>{% endif %}
 <a href="{{ '/offers?recruitment_type=all&offer_id=' ~ item.target_id if item.target_type == 'offer' else '/interviews?recruitment_type=all#interview-' ~ item.target_id if item.target_type == 'interview' else '/exams?recruitment_type=all' }}">回原业务页面重试</a>
 {% endif %}

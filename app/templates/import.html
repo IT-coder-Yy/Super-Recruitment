@@ -130,6 +130,7 @@
   </aside>
 </section>
 
+{% if demo_enabled() %}
 <section class="work-surface import-section">
   <header class="surface-header">
     <div>
@@ -145,6 +146,7 @@
     <pre id="mockImportResult" class="notice mock-result" hidden aria-live="polite"></pre>
   </div>
 </section>
+{% endif %}
 </div>
 {% endblock %}
 

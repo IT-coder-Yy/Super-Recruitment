@@ -11,8 +11,11 @@ import shutil
 
 from sqlalchemy import Engine, inspect, text
 
+from app import config
+
 
 ADDED_COLUMNS = {
+    "users": {"is_active": "BOOLEAN NOT NULL DEFAULT 1"},
     "interviews": {"meeting_id": "VARCHAR(32)", "meeting_request": "JSON"},
     "jobs": {"recruitment_type": "VARCHAR(20) NOT NULL DEFAULT 'autumn'"},
     "exam_resources": {"job_id": "INTEGER REFERENCES jobs(id)", "request_key": "VARCHAR(64)"},
@@ -20,6 +23,37 @@ ADDED_COLUMNS = {
     "offers": {"terms": "JSON"},
     "offer_approvals": {"snapshot": "JSON"},
 }
+
+
+def backup_database(engine: Engine) -> Path | None:
+    """本机维护与结构迁移共用同一份数据库、附件及运行配置备份。"""
+    if engine.dialect.name != "sqlite" or engine.url.database in (None, ":memory:"):
+        return None
+    path = Path(engine.url.database).resolve()
+    if not path.is_file():
+        return None
+    folder = path.parent / "backups"
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = folder / f"{path.stem}-{stamp}-{uuid.uuid4().hex[:8]}.db"
+    with sqlite3.connect(path) as source, sqlite3.connect(backup) as destination:
+        source.backup(destination)
+    assets = backup.with_suffix(".files")
+    assets.mkdir()
+    for name, original in (("uploads", config.UPLOAD_DIR), ("runtime.env", config.ENV_FILE), ("users", config.DATA_DIR / "users")):
+        if original.is_dir():
+            shutil.copytree(original, assets / name)
+        elif original.is_file():
+            shutil.copy2(original, assets / name)
+    with sqlite3.connect(backup) as source:
+        tables = [row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        counts = {name: source.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] for name in tables if name.replace("_", "").isalnum()}
+    manifest = {"database": backup.name, "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+                "created_at": stamp, "original_database": str(path), "counts": counts,
+                "original_uploads": str(config.UPLOAD_DIR.resolve()),
+                "assets": {str(item.relative_to(assets)): hashlib.sha256(item.read_bytes()).hexdigest() for item in assets.rglob("*") if item.is_file()}}
+    backup.with_suffix(".json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return backup
 
 
 def prepare_upgrade(engine: Engine) -> Path | None:
@@ -35,27 +69,7 @@ def prepare_upgrade(engine: Engine) -> Path | None:
     ]
     backup = None
     if (pending or "app_schema_versions" not in tables) and engine.dialect.name == "sqlite" and engine.url.database not in (None, ":memory:"):
-        path = Path(engine.url.database).resolve()
-        folder = path.parent / "backups"
-        folder.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        backup = folder / f"{path.stem}-{stamp}-{uuid.uuid4().hex[:8]}.db"
-        with sqlite3.connect(path) as source, sqlite3.connect(backup) as destination:
-            source.backup(destination)
-        assets = backup.with_suffix(".files")
-        assets.mkdir()
-        for name in ("uploads", "runtime.env", "users"):
-            original = path.parent / name
-            if original.is_dir():
-                shutil.copytree(original, assets / name)
-            elif original.is_file():
-                shutil.copy2(original, assets / name)
-        with sqlite3.connect(backup) as source:
-            counts = {name: source.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] for name in tables if name.replace("_", "").isalnum()}
-        manifest = {"database": backup.name, "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
-                    "created_at": stamp, "original_database": str(path), "counts": counts,
-                    "assets": {str(item.relative_to(assets)): hashlib.sha256(item.read_bytes()).hexdigest() for item in assets.rglob("*") if item.is_file()}}
-        backup.with_suffix(".json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        backup = backup_database(engine)
     with engine.begin() as connection:
         for table, column, ddl in pending:
             connection.exec_driver_sql(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {ddl}')

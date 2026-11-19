@@ -163,7 +163,7 @@ def test_empty_workbench_renders_without_demo_counts(session):
     assert all(step["count"] == 0 for step in context["workbench"]["flow"])
     environment = Environment(loader=FileSystemLoader("app/templates"), autoescape=True)
     html = environment.get_template("workbench.html").render(**context, current_user={"username": "测试用户"}, csrf_token="test",
-        request={"url": {"path": "/"}}, recruitment_type="all",
+        request={"url": {"path": "/"}}, recruitment_type="all", demo_enabled=lambda: False,
         recruitment_types={"all": "全部", "autumn": "秋招", "internship": "实习"})
     assert "今日暂无已确认面试" in html
     assert "暂无进行中的候选人" in html

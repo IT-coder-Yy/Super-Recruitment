@@ -11,6 +11,8 @@ import shutil
 
 from sqlalchemy import Engine, inspect, text
 
+from app import config
+
 
 ADDED_COLUMNS = {
     "users": {"is_active": "BOOLEAN NOT NULL DEFAULT 1"},
@@ -38,8 +40,7 @@ def backup_database(engine: Engine) -> Path | None:
         source.backup(destination)
     assets = backup.with_suffix(".files")
     assets.mkdir()
-    for name in ("uploads", "runtime.env", "users"):
-        original = path.parent / name
+    for name, original in (("uploads", config.UPLOAD_DIR), ("runtime.env", config.ENV_FILE), ("users", config.DATA_DIR / "users")):
         if original.is_dir():
             shutil.copytree(original, assets / name)
         elif original.is_file():
@@ -49,6 +50,7 @@ def backup_database(engine: Engine) -> Path | None:
         counts = {name: source.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] for name in tables if name.replace("_", "").isalnum()}
     manifest = {"database": backup.name, "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
                 "created_at": stamp, "original_database": str(path), "counts": counts,
+                "original_uploads": str(config.UPLOAD_DIR.resolve()),
                 "assets": {str(item.relative_to(assets)): hashlib.sha256(item.read_bytes()).hexdigest() for item in assets.rglob("*") if item.is_file()}}
     backup.with_suffix(".json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return backup

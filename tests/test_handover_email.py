@@ -7,6 +7,7 @@ import json
 import re
 import smtplib
 import sys
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import func, select, update
@@ -367,3 +368,37 @@ def test_return_transfer_keeps_the_handover_used_by_each_attempt(handover):
         current = session.scalar(select(func.max(AuditLog.id)).where(AuditLog.action == "account.data_transferred"))
         assert current != original_handover
         assert all(n.owner_user_id == case["aid"] and n.current_handover_audit_id == current for n in attempts)
+
+
+@pytest.mark.parametrize("scenario", ["legacy_backfill", "previous_version", "return_to_sender"])
+def test_first_retry_requires_confirmation_for_this_handover(handover, scenario):
+    case = handover()
+    client, headers, owner = case["b"], case["hb"], case["bid"]
+    if scenario == "return_to_sender":
+        assert confirm(case).status_code == 200
+        with case["factory"].begin() as session:
+            assign_data(session, session.get(User, case["aid"]), source=session.get(User, owner))
+        client, headers, owner = case["a"], case["ha"], case["aid"]
+    else:
+        with case["factory"].begin() as session:
+            old = session.get(Notification, case["nid"])
+            old.provider_response = {"mode": "smtp", "transport": "ssl"}
+            if scenario == "legacy_backfill":
+                assign_data(session, session.get(User, owner), confirmed_mail_ids=[old.id])
+            else:
+                audit = session.scalar(select(AuditLog).where(AuditLog.action == "account.data_transferred"))
+                old.provider_response = {**old.provider_response, "handover_audit_id": audit.id}
+    # 在创建发送记录之前拦住任何未确认的尝试，测试不允许它到达 SMTP。
+    with patch.object(Notification, "__init__", side_effect=AssertionError("尚未确认就开始新发送")):
+        assert client.post(case["url"], headers=headers).status_code == 422
+    assert len(case["attempts"]) == 1
+    confirmed = client.post(f"/api/notifications/{case['nid']}/authorize-resend", headers=headers,
+        data={"sender": config.smtp_settings(owner)["SMTP_FROM"], "reason": "核实本次交接"})
+    assert confirmed.status_code == 200 and len(case["attempts"]) == 1
+    case["delivery"][0] = True
+    sent = client.post(case["url"], headers=headers)
+    assert sent.status_code == 200 and len(case["messages"]) == 1
+    with case["factory"]() as session:
+        new = session.get(Notification, sent.json()["notification_id"])
+        authorization = session.get(AuditLog, new.provider_response["resend_authorization_id"])
+        assert new.provider_response["handover_audit_id"] == authorization.details["handover_audit_id"]

@@ -503,12 +503,16 @@ def send_email_notification(
     metadata = (previous.provider_response or {}) if previous else {}
     handover_id = previous.current_handover_audit_id if previous else None
     authorization = metadata.get("resend_authorization") or {}
-    authorized = (authorization.get("user_id") == current_user_id.get() and authorization.get("sender") == sender
-                  and authorization.get("handover_audit_id") == handover_id)
-    if previous and "smtp_source" in (previous.provider_response or {}) and any(
-        previous.provider_response.get(key) != value for key, value in sender.items()
-    ) and not authorized:
-        raise ValueError("原发送邮箱与当前账号配置不同；交接邮件请先在通知中心确认当前发件邮箱，不能自动更换发件人")
+    authorized = (handover_id is not None and authorization.get("handover_audit_id") == handover_id
+                  and authorization.get("user_id") == current_user_id.get() and authorization.get("sender") == sender)
+    # 只有上一次发送已在本次交接下进行，同一发件身份才能沿用确认。
+    new_handover = metadata.get("current_handover_audit_id") != metadata.get("handover_audit_id")
+    sender_changed = (handover_id is not None or "smtp_source" in metadata) and any(
+        metadata.get(key) != value for key, value in sender.items())
+    if (new_handover or sender_changed) and not authorized:
+        if handover_id:
+            raise ValueError("请先在通知中心为本次交接确认当前发件邮箱")
+        raise ValueError("原发送邮箱与当前配置不同，请恢复原发件身份后重试")
     if previous:
         recipient, subject, content = previous.recipient, previous.subject, previous.content
     delivery = {**sender, "retry_of": previous.id} if previous else sender

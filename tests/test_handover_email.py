@@ -424,3 +424,21 @@ def test_older_notification_stays_reachable_after_confirming(handover):
     confirmed = confirm(case)
     assert confirmed.status_code == 200
     assert endpoint in case["b"].get(confirmed.json()["redirect"]).text
+
+
+def test_old_offer_retry_opens_exact_detail_beyond_list_limit(handover):
+    case = handover()
+    with account_scope(case["bid"]), case["factory"]() as session:
+        newer = application(session, ApplicationStatus.OFFER_PENDING)
+        newer.job.recruitment_type = "internship"
+        session.add_all(Offer(application_id=newer.id, candidate_name="较新实习", job_title="实习", content="虚构条款")
+                        for _ in range(200))
+        session.commit()
+    assert confirm(case).status_code == 200
+    html = case["b"].get("/notifications?recruitment_type=internship").text
+    href = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', html)[1])
+    target = case["b"].get(href)
+    button = f'action="{case["url"]}"'
+    assert button in case["b"].get(f'/offers?offer_id={case["target_id"]}&recruitment_type=autumn').text
+    assert target.status_code == 200 and button in target.text
+    assert case["a"].get(href).status_code == 403

@@ -1159,11 +1159,7 @@ def offers_page(
 ):
     offers = session.scalars(select(Offer).where(Offer.application_id.in_(
         _application_ids(_recruitment_type(request)))).order_by(desc(Offer.created_at)).limit(200)).all()
-    selected_offer = (
-        next((item for item in offers if item.id == offer_id), None)
-        if offer_id
-        else (offers[0] if offers else None)
-    )
+    selected_offer = session.get(Offer, offer_id) if offer_id is not None else next(iter(offers), None)
     return _render(
         request,
         session,

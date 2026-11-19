@@ -374,9 +374,12 @@ def test_recovery_and_scheduler_without_visiting_pages(env, monkeypatch):
         assert triggered.wait(3), "应用生命周期没有实际触发调度入口"
 
 
-def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
+def test_upgrade_backup_is_reentrant_and_restorable(tmp_path, monkeypatch):
     from scripts.restore_backup import restore
-    database = tmp_path / "old.db"
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(config, "ENV_FILE", tmp_path / "active-settings.env")
+    database = tmp_path / "sqlite" / "old.db"
     # 用真实旧列定义构造包含资料、投递、评估、Offer 的旧库。
     engine = create_db_engine(f"sqlite:///{database.as_posix()}")
     init_db(engine)
@@ -398,13 +401,13 @@ def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
         connection.execute("DROP TABLE app_schema_versions")
         connection.execute("DELETE FROM application_sources")
     (tmp_path/"uploads").mkdir(); (tmp_path/"uploads"/"resume.txt").write_text("虚构原文", encoding="utf-8")
-    (tmp_path/"runtime.env").write_text("LLM_PROVIDER=mock", encoding="utf-8")
+    config.ENV_FILE.write_text("LLM_PROVIDER=mock", encoding="utf-8")
     personal_mail = tmp_path / "users" / "1" / "smtp.runtime.env"
     personal_mail.parent.mkdir(parents=True)
     personal_mail.write_text("SMTP_PASSWORD='synthetic-backup-secret'\n", encoding="utf-8")
     engine = create_db_engine(f"sqlite:///{database.as_posix()}")
     init_db(engine); init_db(engine)
-    backups = list((tmp_path/"backups").glob("*.db"))
+    backups = list((database.parent/"backups").glob("*.db"))
     assert len(backups) == 1
     with Session(engine) as session:
         assert session.scalar(select(func.count(ApplicationSource.source_id))) == 3
@@ -420,6 +423,7 @@ def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("SELECT file_path FROM exam_resources").fetchone()[0] == str(restored.parent/"uploads"/"resume.txt")
     assert (restored.parent/"uploads"/"resume.txt").read_text(encoding="utf-8") == "虚构原文"
+    assert (restored.parent/"runtime.env").read_bytes() == config.ENV_FILE.read_bytes()
     assert (restored.parent/"users"/"1"/"smtp.runtime.env").read_bytes() == personal_mail.read_bytes()
     engine.dispose()
 

@@ -7,6 +7,7 @@ from sqlalchemy import MetaData, UniqueConstraint, inspect, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 
+from app import config
 from app.accounts import assign_data, create_account
 from app.db import Base, create_db_engine, init_db
 from app.models import AuditLog, Candidate, Notification, User
@@ -36,7 +37,10 @@ def legacy_schema(engine):
     return metadata
 
 
-def test_upgrade_preserves_legacy_data_and_account_dedup(tmp_path):
+def test_upgrade_preserves_legacy_data_and_account_dedup(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(config, "ENV_FILE", tmp_path / "runtime.env")
     path = tmp_path / "legacy.db"
     engine = create_db_engine(f"sqlite:///{path.as_posix()}")
     old = legacy_schema(engine)

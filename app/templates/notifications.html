@@ -20,6 +20,10 @@
 {% if item.channel == 'wecom' and item.status.value == 'failed' and not (item.provider_response or {}).get('retry_id') %}<form method="post" action="/api/notifications/{{ item.id }}/retry"><button class="button" type="submit" data-confirm="请先核对内部群消息；超时后的重试可能重复提醒。确认重试？">重试内部通知</button></form>{% endif %}</details></td><td><span class="status {% if item.status.value == 'failed' %}status-danger{% elif item.status.value == 'sent' %}status-success{% else %}status-warning{% endif %}">{{ {'failed':'发送失败','sent':'已发送','mocked':'模拟发送 · Mock','unknown':'送达待核实','sending':'发送中'}.get(item.status.value, item.status.value) }}</span></td><td>{{ item.created_at }}</td></tr>
       {% else %}<tr><td colspan="5"><div class="empty-state"><h3>暂无通知记录</h3><p>预约邀请、Offer 与内部提醒的发送结果会显示在这里。</p></div></td></tr>{% endfor %}
     </tbody></table></div>
+    {% if before_id is not none or older_id %}<nav class="button-row" aria-label="通知分页">
+      {% if before_id is not none %}<a class="button button-sm" href="/notifications">返回最新通知</a>{% endif %}
+      {% if older_id %}<a class="button button-sm" href="/notifications?before_id={{ older_id }}">更早的通知</a>{% endif %}
+    </nav>{% endif %}
   </article>
   <article class="work-surface">
     <header class="surface-header"><div><h2 class="surface-title">数据导出与同步</h2><p class="card-subtitle">下载招聘数据，或查看腾讯文档 Mock 同步结果。</p></div></header>

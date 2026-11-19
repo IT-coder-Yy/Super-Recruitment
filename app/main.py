@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import desc, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -1189,10 +1189,14 @@ def onboarding_page(request: Request, session: Session = Depends(get_db)):
 
 
 @app.get("/notifications")
-def notifications_page(request: Request, session: Session = Depends(get_db)):
-    notifications = session.scalars(
-        select(Notification).order_by(desc(Notification.created_at)).limit(200)
-    ).all()
+def notifications_page(request: Request, before_id: int | None = None, session: Session = Depends(get_db)):
+    query = select(Notification)
+    if before_id is not None:
+        anchor = session.get(Notification, before_id)
+        if anchor is None:
+            raise HTTPException(404, "未找到通知记录")
+        query = query.where(tuple_(Notification.created_at, Notification.id) <= (anchor.created_at, anchor.id))
+    notifications = session.scalars(query.order_by(Notification.created_at.desc(), Notification.id.desc()).limit(201)).all()
     exports = session.scalars(
         select(ExportRun).order_by(desc(ExportRun.created_at)).limit(20)
     ).all()
@@ -1201,7 +1205,8 @@ def notifications_page(request: Request, session: Session = Depends(get_db)):
         session,
         "notifications.html",
         "notifications",
-        notifications=notifications,
+        notifications=notifications[:200], before_id=before_id,
+        older_id=notifications[200].id if len(notifications) > 200 else None,
         exports=exports,
         smtp_sender=smtp_settings(request.state.current_user["id"])["SMTP_FROM"],
         latest_mail_ids=set(session.scalars(select(func.max(Notification.id)).where(Notification.channel == "email")
@@ -2571,7 +2576,7 @@ def authorize_email_resend(notification_id: int, sender: str = Form(...), reason
     try:
         authorize_handover_resend(session, notification_id, sender=sender, reason=reason)
         session.commit()
-        return {"ok": True, "message": "已确认当前发件邮箱，尚未发送；请回原业务页面重试。", "redirect": "/notifications"}
+        return {"ok": True, "message": "已确认当前发件邮箱，尚未发送；请回原业务页面重试。", "redirect": f"/notifications?before_id={notification_id}"}
     except ValueError as exc:
         session.rollback()
         raise HTTPException(409, str(exc)) from exc

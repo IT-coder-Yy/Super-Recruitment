@@ -402,3 +402,25 @@ def test_first_retry_requires_confirmation_for_this_handover(handover, scenario)
         new = session.get(Notification, sent.json()["notification_id"])
         authorization = session.get(AuditLog, new.provider_response["resend_authorization_id"])
         assert new.provider_response["handover_audit_id"] == authorization.details["handover_audit_id"]
+
+
+def test_older_notification_stays_reachable_after_confirming(handover):
+    case = handover()
+    now = utc_now()
+    with case["factory"].begin() as session:
+        session.add_all(Notification(owner_user_id=case["bid"], channel="internal", status=NotificationStatus.SENT,
+                                     content="后续通知", created_at=now) for _ in range(200))
+        session.add(Notification(owner_user_id=case["bid"], channel="internal", status=NotificationStatus.SENT,
+                                 content="回填的历史通知", created_at=now - timedelta(days=1)))
+    endpoint = f'/api/notifications/{case["nid"]}/authorize-resend'
+    first = case["b"].get("/notifications")
+    assert endpoint not in first.text and "回填的历史通知" not in first.text
+    older = re.search(r'<a[^>]+href="([^"]+)"[^>]*>更早的通知</a>', first.text)
+    assert older, "第 201 条通知无法从列表打开"
+    link = unescape(older[1])
+    older_page = case["b"].get(link)
+    assert endpoint in older_page.text and "回填的历史通知" in older_page.text
+    assert case["a"].get(link).status_code == 404
+    confirmed = confirm(case)
+    assert confirmed.status_code == 200
+    assert endpoint in case["b"].get(confirmed.json()["redirect"]).text

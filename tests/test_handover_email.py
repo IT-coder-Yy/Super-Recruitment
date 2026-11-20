@@ -473,6 +473,27 @@ def test_exam_retry_keeps_original_paper_through_preview_and_send(handover):
         assert session.scalar(select(func.count(ExamDispatch.id))) == 1
 
 
+@pytest.mark.parametrize("stage", [ApplicationStatus.WRITTEN_PENDING, ApplicationStatus.INTERVIEW_PENDING])
+def test_exam_retry_for_finished_stage_keeps_original_candidate(handover, stage):
+    case = handover("exam")
+    with account_scope(case["bid"]), case["factory"]() as session:
+        dispatch = session.get(ExamDispatch, case["target_id"])
+        original = dispatch.application
+        other = application(session, ApplicationStatus.ASSESSMENT_PENDING)
+        other.job_id, other.job_version_id = original.job_id, original.job_version_id
+        original.status = stage
+        name, title = original.candidate.name, dispatch.resource.title
+        session.commit()
+    assert confirm(case).status_code == 200
+    notices = case["b"].get("/notifications").text
+    link = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', notices)[1])
+    body = case["b"].get(link).text.split("<h2>预览与发放</h2>")[1].split("</section>")[0]
+    assert "阶段已经结束" in body and name in body and title in body
+    assert 'action="/exams"' not in body and "/exams/send" not in body
+    assert 'name="application_id"' in case["b"].get("/exams").text
+    assert len(case["attempts"]) == 1 and not case["messages"]
+
+
 @pytest.mark.parametrize("transferred_again", [False, True])
 def test_upgrade_recovers_sent_handover_from_old_authorization(handover, transferred_again):
     case = handover()

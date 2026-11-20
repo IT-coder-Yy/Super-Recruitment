@@ -160,6 +160,30 @@ def test_settings_and_offer_approval_need_explicit_permissions(secure_env, id_fo
     assert b.get("/api/candidates").status_code == 401
 
 
+@pytest.mark.parametrize("created_admin, explicit", [(True, False), (False, False), (True, True)])
+def test_demotion_keeps_only_explicit_offer_permission(secure_env, monkeypatch, created_admin, explicit):
+    from app import accounts
+    _, _, _, _, factory, _ = secure_env
+    engine = factory.kw["bind"]
+    with factory.begin() as session:
+        user = create_account(session, "review-role", "synthetic-password-123", admin=created_admin, approve_offers=explicit)
+        uid = user.id
+    monkeypatch.setattr(accounts, "engine", engine)
+    monkeypatch.setattr(accounts, "init_db", lambda: init_db(engine))
+    monkeypatch.setattr(accounts, "SessionLocal", factory)
+    with TestClient(main.app) as client:
+        login(client, "review-role")
+        for value in ("yes", "no"):
+            monkeypatch.setattr(sys, "argv", ["accounts", "update", "review-role", "--admin", value])
+            accounts.main()
+            assert client.get("/offers").context["current_user"]["can_approve_offers"] is (value == "yes" or explicit)
+    with factory() as session:
+        user = session.get(User, uid)
+        assert not user.is_admin and user.can_approve_offers is explicit
+        created = session.scalar(select(AuditLog).where(AuditLog.action == "account.created", AuditLog.entity_id == uid))
+        assert created.after_data["can_approve_offers"] is explicit
+
+
 def test_admin_cannot_access_foreign_workflow_records_or_files(secure_env):
     from app.models import ExamResource
     a, b, ha, hb, factory, (aid, bid) = secure_env

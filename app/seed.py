@@ -656,7 +656,7 @@ def _seed_demo_user(session: Session) -> User:
         username="demo-admin",
         normalized_username=normalized,
         password_hash=hash_password("demo123456"),
-        is_admin=True, can_approve_offers=True,
+        is_admin=True,
     )
     session.add(user)
     session.flush()

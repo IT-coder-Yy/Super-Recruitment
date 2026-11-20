@@ -26,7 +26,7 @@ def create_account(session, username: str, password: str, *, admin=False, approv
     if session.scalar(select(User.id).where(User.normalized_username == normalize_username(username))):
         raise ValueError("账号已存在")
     user = User(username=username, normalized_username=normalize_username(username), password_hash=hash_password(password),
-                is_active=True, is_admin=admin, can_approve_offers=approve_offers or admin)
+                is_active=True, is_admin=admin, can_approve_offers=approve_offers)
     session.add(user)
     session.flush()
     session.add(AuditLog(owner_user_id=user.id, actor="本机账号管理", action="account.created",

@@ -9,7 +9,7 @@ import json
 import hashlib
 import shutil
 
-from sqlalchemy import Engine, inspect, select, text
+from sqlalchemy import Engine, inspect, literal, select, text
 from sqlalchemy.schema import CreateTable
 
 from app import config
@@ -76,7 +76,8 @@ def prepare_upgrade(engine: Engine) -> Path | None:
     ]
     backup = None
     with engine.connect() as connection:
-        version_pending = "app_schema_versions" not in tables or not connection.scalar(text("SELECT 1 FROM app_schema_versions WHERE version=3"))
+        version_pending = ("app_schema_versions" not in tables or
+                           connection.scalar(text("SELECT COUNT(*) FROM app_schema_versions WHERE version BETWEEN 1 AND 4")) != 4)
     if (pending or version_pending) and engine.dialect.name == "sqlite" and engine.url.database not in (None, ":memory:"):
         backup = backup_database(engine)
     with engine.begin() as connection:
@@ -190,6 +191,18 @@ def finish_upgrade(engine: Engine) -> list[dict]:
         if not connection.scalar(text("SELECT 1 FROM app_schema_versions WHERE version=3")):
             _repair_legacy_mail_history(connection)
             connection.execute(text("INSERT INTO app_schema_versions(version) VALUES (3)"))
+        if not connection.scalar(text("SELECT 1 FROM app_schema_versions WHERE version=4")):
+            users, audit = Base.metadata.tables["users"], Base.metadata.tables["audit_logs"]
+            granted = users.c.can_approve_offers.is_(True)
+            changes = select(
+                users.c.id, literal("旧账号权限迁移"), literal("account.permissions_updated"), literal("user"), users.c.id,
+                literal({"can_approve_offers": True}, audit.c.before_data.type),
+                literal({"can_approve_offers": False}, audit.c.after_data.type),
+            ).where(granted)
+            connection.execute(audit.insert().from_select(
+                ["owner_user_id", "actor", "action", "entity_type", "entity_id", "before_data", "after_data"], changes))
+            connection.execute(users.update().where(granted).values(can_approve_offers=False))
+            connection.execute(text("INSERT INTO app_schema_versions(version) VALUES (4)"))
         if engine.dialect.name == "sqlite" and connection.exec_driver_sql("PRAGMA foreign_key_check").fetchone():
             raise ValueError("迁移后的外键检查未通过，请保留失败副本并从备份恢复")
     return duplicates

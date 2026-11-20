@@ -103,6 +103,46 @@ def test_upgrade_preserves_legacy_data_and_account_dedup(tmp_path, monkeypatch):
     engine.dispose()
 
 
+@pytest.mark.parametrize("old_version", [2, 3])
+def test_upgrade_clears_old_offer_approvals_once(tmp_path, monkeypatch, old_version):
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(config, "ENV_FILE", tmp_path / "runtime.env")
+    engine = create_db_engine(f"sqlite:///{(tmp_path / 'trial.db').as_posix()}")
+    init_db(engine)
+    factory = sessionmaker(engine)
+    with factory.begin() as session:
+        admin = create_account(session, "old-admin", "synthetic-password", admin=True, approve_offers=True)
+        former = create_account(session, "former-admin", "synthetic-password", admin=True, approve_offers=True)
+        former.is_admin = False
+        hr = create_account(session, "explicit-hr", "synthetic-password", approve_offers=True)
+        create_account(session, "ordinary-hr", "synthetic-password")
+        admin_id, former_id, hr_id = admin.id, former.id, hr.id
+        session.connection().exec_driver_sql("DELETE FROM app_schema_versions WHERE version > ?", (old_version,))
+
+    granted = select(User.id).where(User.can_approve_offers)
+    init_db(engine)
+    with factory.begin() as session:
+        assert not session.scalars(granted).all()
+        assert session.scalars(select(User.id).where(User.is_admin)).all() == [admin_id]
+        session.get(User, hr_id).can_approve_offers = True
+        new_id = create_account(session, "new-hr", "synthetic-password", approve_offers=True).id
+    init_db(engine)
+    with factory() as session:
+        assert set(session.scalars(granted)) == {hr_id, new_id}
+        logs = session.scalars(select(AuditLog).where(AuditLog.action == "account.permissions_updated")
+                               .order_by(AuditLog.entity_id)).all()
+        assert [entry.entity_id for entry in logs] == [admin_id, former_id, hr_id]
+        assert all(entry.owner_user_id == entry.entity_id and entry.entity_type == "user"
+                   and entry.before_data == {"can_approve_offers": True}
+                   and entry.after_data == {"can_approve_offers": False} for entry in logs)
+    backup, = (tmp_path / "backups").glob("*.db")
+    with sqlite3.connect(backup) as original:
+        assert original.execute("SELECT MAX(version) FROM app_schema_versions").fetchone()[0] == old_version
+        assert {uid for uid, in original.execute("SELECT id FROM users WHERE can_approve_offers")} == {admin_id, former_id, hr_id}
+    engine.dispose()
+
+
 def test_account_transfer_rolls_back_instead_of_merging_same_person(tmp_path):
     engine = create_db_engine(f"sqlite:///{(tmp_path / 'transfer.db').as_posix()}")
     init_db(engine)

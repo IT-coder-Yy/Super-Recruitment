@@ -143,6 +143,8 @@ def test_settings_and_offer_approval_need_explicit_permissions(secure_env, id_fo
         offers.save_offer_terms(session, offer.id, {"company_name": "虚构公司", "job_title": "虚构岗位", "salary": "虚构 300 元/天", "subsidy": "无", "office_location": "虚构办公区", "report_location": "虚构前台", "report_time": (now + timedelta(days=7)).date().isoformat(), "expires_at": (now + timedelta(days=3)).isoformat()}, version=0)
         oid = offer.id
     path = f"/api/offers/{id_format.format(id=oid)}/approve"
+    button = f'action="/api/offers/{oid}/approve"'
+    assert button not in b.get(f"/offers?offer_id={oid}").text
     assert b.post(path, headers=hb, data={"version": 1}).status_code == 403
     assert b.post(path.removesuffix("approve") + "return", headers=hb, data={"version": 1, "reason": "无权退回"}).status_code == 403
     with factory() as session:
@@ -153,6 +155,7 @@ def test_settings_and_offer_approval_need_explicit_permissions(secure_env, id_fo
     assert a.get(f"/offers?offer_id={oid}").status_code == 403
     with factory.begin() as session:
         session.get(User, bid).can_approve_offers = True
+    assert b.get(f"/offers?offer_id={oid}").text.count(button) == 2
     assert b.post(path, headers=hb, data={"version": 1}).json()["status"] == "approved"
     with factory.begin() as session:
         session.get(User, bid).is_active = False

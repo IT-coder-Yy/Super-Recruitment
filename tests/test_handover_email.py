@@ -490,6 +490,9 @@ def test_exam_retry_for_finished_stage_keeps_original_candidate(handover, stage)
     body = case["b"].get(link).text.split("<h2>预览与发放</h2>")[1].split("</section>")[0]
     assert "阶段已经结束" in body and name in body and title in body
     assert 'action="/exams"' not in body and "/exams/send" not in body
+    assert "/exams/decision" not in body
+    current_page = case["b"].get(f"/exams?application_id={original.id}").text
+    assert ("/exams/decision" in current_page) == (stage == ApplicationStatus.WRITTEN_PENDING)
     assert 'name="application_id"' in case["b"].get("/exams").text
     assert len(case["attempts"]) == 1 and not case["messages"]
 

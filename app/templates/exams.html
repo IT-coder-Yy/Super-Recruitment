@@ -21,7 +21,8 @@
 </div></td></tr>{% else %}<tr><td colspan="4">暂无资源，请登记公司已有试卷链接。</td></tr>{% endfor %}
 </tbody></table></div></div></section>
 <section class="work-surface"><header class="surface-header"><h2>预览与发放</h2></header><div class="surface-body stack-sm">
-{% if selected_application and selected_resource and selected_application.status != kinds[selected_resource.kind][1] %}
+{% set stage_mismatch = selected_application and selected_resource and selected_application.status != kinds[selected_resource.kind][1] %}
+{% if stage_mismatch %}
 <p>投递 #{{ selected_application.id }} {{ selected_application.candidate.name }} · {{ status_labels[selected_application.status.value] }} · {{ selected_resource.title }}</p>
 <a href="/exams?recruitment_type={{ recruitment_type }}">重新选择投递和试卷</a>
 {% else %}
@@ -34,7 +35,7 @@
 {% if preview %}<p>收件人：{{ preview.recipient }}　主题：{{ preview.subject }}</p><pre>{{ preview.content }}</pre>
 <p class="muted">只发送外部链接，内部文件不会随邮件发送。发放不代表考试完成。</p>
 <form method="post" action="/api/applications/{{ selected_application.id }}/exams/send"><input type="hidden" name="resource_id" value="{{ preview.resource_id }}"><input type="hidden" name="candidate_revision" value="{{ preview.candidate_revision }}"><button class="button button-primary" type="submit">确认发放 / 失败重试</button></form>{% endif %}
-{% if selected_application and selected_application.status.value in ['assessment_pending','written_pending'] %}
+{% if selected_application and not stage_mismatch and selected_application.status.value in ['assessment_pending','written_pending'] %}
 <form method="post" action="/api/applications/{{ selected_application.id }}/exams/decision" class="form-grid">
 <input type="hidden" name="version" value="{{ (selected_application.extra_data or {}).get('workflow_revision',0) }}"><input type="hidden" name="kind" value="{{ 'assessment' if selected_application.status.value == 'assessment_pending' else 'written' }}">
 <label class="field">HR 结论<select class="select" name="result"><option value="passed">通过</option><option value="failed">不通过</option><option value="skipped">跳过</option></select></label>

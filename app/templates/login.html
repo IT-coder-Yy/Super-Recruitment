@@ -26,7 +26,7 @@
         <div class="field"><label for="password">密码</label><div class="public-password"><input class="input auth-input" id="password" name="password" type="password" autocomplete="current-password" minlength="6" required placeholder="请输入密码"><button type="button" data-toggle-password="password" aria-label="显示密码" aria-controls="password" aria-pressed="false">显示</button></div></div>
         <button class="button button-primary auth-submit" type="submit" data-pending-label="正在登录…">登录</button>
       </form>
-      <p class="auth-switch">还没有账号？<a href="/register">创建 Demo 账号</a></p>
+      <p class="auth-switch">{% if demo_enabled() %}还没有账号？<a href="/register">创建 Demo 账号</a>{% else %}需要账号请联系系统管理员。{% endif %}</p>
     </div>
   </section>
 </main>

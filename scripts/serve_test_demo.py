@@ -24,6 +24,7 @@ else:
     root.mkdir(parents=True, exist_ok=False)
     marker.write_text("synthetic-only")
 os.environ.update({
+    "APP_ENV": "demo",
     "APP_DATA_DIR": str(root), "APP_RUNTIME_ENV": str(root/"runtime.env"),
     "DATABASE_URL": f"sqlite:///{(root/'demo.db').as_posix()}",
     "APP_SECRET_KEY": "synthetic-ui-test-secret", "LLM_PROVIDER": "mock", "LLM_BASE_URL": "", "LLM_API_KEY": "", "LLM_MODEL": "",

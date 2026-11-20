@@ -9,9 +9,9 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import DATA_DIR
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_DATABASE_URL = f"sqlite:///{(Path(os.getenv('APP_DATA_DIR', str(ROOT_DIR / 'data'))) / 'recruitment.db').as_posix()}"
+DEFAULT_DATABASE_URL = f"sqlite:///{(DATA_DIR / 'recruitment.db').as_posix()}"
 DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 

@@ -9,6 +9,14 @@ from dotenv import dotenv_values, load_dotenv, set_key
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_deployment_env() -> None:
+    if not os.getenv("APP_DATA_DIR"):
+        load_dotenv(ROOT_DIR / ".env", override=False)
+
+
+_load_deployment_env()
 DATA_DIR = Path(os.getenv("APP_DATA_DIR", str(ROOT_DIR / "data"))).resolve()
 EXPORT_DIR = DATA_DIR / "exports"
 UPLOAD_DIR = DATA_DIR / "uploads"
@@ -40,8 +48,7 @@ def ensure_runtime_dirs() -> None:
 
 
 def reload_env(*, override: bool = True) -> None:
-    if not os.getenv("APP_DATA_DIR"):
-        load_dotenv(ROOT_DIR / ".env", override=False)
+    _load_deployment_env()
     legacy_smtp = not any(name in os.environ for name in SMTP_KEYS)
     for name, value in dotenv_values(ENV_FILE).items():
         # SMTP 整组取部署配置，避免混入旧授权码；完全未声明时兼容旧运行文件。
@@ -51,6 +58,13 @@ def reload_env(*, override: bool = True) -> None:
 
 def get_setting(name: str, default: str = "") -> str:
     return os.getenv(name, default)
+
+
+def demo_enabled() -> bool:
+    mode = get_setting("APP_ENV", "production").strip().lower()
+    if mode not in {"production", "local", "demo"}:
+        raise ValueError("APP_ENV 必须为 production、local 或显式演示模式 demo")
+    return mode == "demo"
 
 
 def public_url(path: str) -> str:

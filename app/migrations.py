@@ -9,7 +9,7 @@ import json
 import hashlib
 import shutil
 
-from sqlalchemy import Engine, inspect, text
+from sqlalchemy import Engine, inspect, select, text
 from sqlalchemy.schema import CreateTable
 
 from app import config
@@ -76,7 +76,7 @@ def prepare_upgrade(engine: Engine) -> Path | None:
     ]
     backup = None
     with engine.connect() as connection:
-        version_pending = "app_schema_versions" not in tables or not connection.scalar(text("SELECT 1 FROM app_schema_versions WHERE version=2"))
+        version_pending = "app_schema_versions" not in tables or not connection.scalar(text("SELECT 1 FROM app_schema_versions WHERE version=3"))
     if (pending or version_pending) and engine.dialect.name == "sqlite" and engine.url.database not in (None, ":memory:"):
         backup = backup_database(engine)
     with engine.begin() as connection:
@@ -129,6 +129,35 @@ def upgrade_account_constraints(engine: Engine) -> None:
             connection.commit()
 
 
+def _repair_legacy_mail_history(connection) -> None:
+    from app.models import AuditLog, Notification
+
+    mail = Notification.__table__
+    auth = AuditLog.__table__
+    transfer = auth.alias("transfer")
+    meta = mail.c.provider_response
+    recorded = meta["handover_audit_id"].as_integer()
+    current = meta["current_handover_audit_id"].as_integer()
+    authorized = auth.c.details["handover_audit_id"].as_integer()
+    attempts = (select(mail.c.id, meta, authorized)
+        .join(transfer, transfer.c.id == recorded)
+        .outerjoin(auth, (auth.c.id == meta["resend_authorization_id"].as_integer())
+                   & (auth.c.action == "notification.resend_authorized") & (auth.c.entity_type == "notification")
+                   & (auth.c.entity_id == meta["retry_of"].as_integer()) & (auth.c.created_at <= mail.c.created_at))
+        .where(mail.c.channel == "email",
+               transfer.c.action.in_(["account.data_transferred", "account.legacy_assigned"]),
+               transfer.c.entity_type == "user", current.is_not(None) | (transfer.c.entity_id == mail.c.owner_user_id),
+               (recorded != authorized) | (authorized.is_(None) & (transfer.c.created_at > mail.c.created_at))))
+    for mail_id, values, sent_handover in connection.execute(attempts).all():
+        # 后来的交接只能证明当前归属；只有本次发送引用的授权能证明当时的编号。
+        old_id = values.pop("handover_audit_id")
+        values["current_handover_audit_id"] = values.get("current_handover_audit_id") or old_id
+        if sent_handover is not None:
+            values["handover_audit_id"] = sent_handover
+        connection.execute(mail.update().where(mail.c.id == mail_id).values(
+            provider_response=values, updated_at=mail.c.updated_at))
+
+
 def finish_upgrade(engine: Engine) -> list[dict]:
     from app.db import Base
     upgrade_account_constraints(engine)
@@ -158,6 +187,9 @@ def finish_upgrade(engine: Engine) -> list[dict]:
         connection.execute(text("CREATE TABLE IF NOT EXISTS app_schema_versions (version INTEGER PRIMARY KEY)"))
         connection.execute(text("INSERT INTO app_schema_versions(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM app_schema_versions WHERE version=1)"))
         connection.execute(text("INSERT INTO app_schema_versions(version) SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM app_schema_versions WHERE version=2)"))
+        if not connection.scalar(text("SELECT 1 FROM app_schema_versions WHERE version=3")):
+            _repair_legacy_mail_history(connection)
+            connection.execute(text("INSERT INTO app_schema_versions(version) VALUES (3)"))
         if engine.dialect.name == "sqlite" and connection.exec_driver_sql("PRAGMA foreign_key_check").fetchone():
             raise ValueError("迁移后的外键检查未通过，请保留失败副本并从备份恢复")
     return duplicates

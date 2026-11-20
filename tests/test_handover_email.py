@@ -471,3 +471,45 @@ def test_exam_retry_keeps_original_paper_through_preview_and_send(handover):
     with case["factory"]() as session:
         assert session.get(Notification, sent.json()["notification_id"]).target_id == case["target_id"]
         assert session.scalar(select(func.count(ExamDispatch.id))) == 1
+
+
+@pytest.mark.parametrize("transferred_again", [False, True])
+def test_upgrade_recovers_sent_handover_from_old_authorization(handover, transferred_again):
+    case = handover()
+    assert confirm(case).status_code == 200
+    sent = case["b"].post(case["url"], headers=case["hb"]).json()["notification_id"]
+    repeated = case["b"].post(case["url"], headers=case["hb"]).json()["notification_id"]
+    factory = case["factory"]
+    with factory.begin() as session:
+        assign_data(session, session.get(User, case["aid"]), source=session.get(User, case["bid"]))
+    with factory.begin() as session:
+        mail = session.get(Notification, sent)
+        metadata = dict(mail.provider_response)
+        current = metadata.pop("current_handover_audit_id")
+        original = session.get(AuditLog, metadata["resend_authorization_id"]).details["handover_audit_id"]
+        assert original != current
+        # 91b77ae 的二次交接会把正在使用的编号写回历史字段。
+        mail.provider_response = {**metadata, "handover_audit_id": current}
+        for mail_id in (case["nid"], repeated):
+            other = session.get(Notification, mail_id)
+            legacy = dict(other.provider_response)
+            legacy["handover_audit_id"] = legacy.pop("current_handover_audit_id")
+            other.provider_response = legacy
+        session.connection().exec_driver_sql("DELETE FROM app_schema_versions WHERE version=3")
+    owner = case["bid"] if transferred_again else case["aid"]
+    if transferred_again:
+        with factory.begin() as session:
+            assign_data(session, session.get(User, owner), source=session.get(User, case["aid"]))
+    engine = factory.kw["bind"]
+    with factory() as session:
+        mail = session.get(Notification, sent)
+        current, stamp = mail.current_handover_audit_id, mail.updated_at
+    init_db(engine)
+    init_db(engine)
+    with factory() as session:
+        mail = session.get(Notification, sent)
+        assert mail.provider_response == {**metadata, "handover_audit_id": original, "current_handover_audit_id": current}
+        assert mail.owner_user_id == owner and mail.updated_at == stamp
+        for mail_id in (case["nid"], repeated):
+            other = session.get(Notification, mail_id)
+            assert other.current_handover_audit_id == current and "handover_audit_id" not in other.provider_response

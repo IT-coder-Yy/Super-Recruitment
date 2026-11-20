@@ -537,3 +537,30 @@ def test_upgrade_recovers_sent_handover_from_old_authorization(handover, transfe
         for mail_id in (case["nid"], repeated):
             other = session.get(Notification, mail_id)
             assert other.current_handover_audit_id == current and "handover_audit_id" not in other.provider_response
+
+
+@pytest.mark.parametrize("old_version, has_proof", [(2, True), (4, True), (4, False)])
+def test_upgrade_reuses_only_confirmed_legacy_retry(handover, old_version, has_proof):
+    case = handover()
+    assert confirm(case).status_code == 200
+    failed_id = case["b"].post(case["url"], headers=case["hb"]).json()["notification_id"]
+    factory = case["factory"]
+    with factory.begin() as session:
+        failed = session.get(Notification, failed_id)
+        metadata = dict(failed.provider_response)
+        handover_id = metadata.pop("current_handover_audit_id")
+        assert handover_id == metadata["handover_audit_id"]
+        if not has_proof:
+            del metadata["resend_authorization_id"]
+        failed.provider_response = metadata
+        session.connection().exec_driver_sql("DELETE FROM app_schema_versions WHERE version > ?", (old_version,))
+
+    init_db(factory.kw["bind"])
+    init_db(factory.kw["bind"])
+    with factory() as session:
+        expected = {**metadata, "current_handover_audit_id": handover_id} if has_proof else metadata
+        assert session.get(Notification, failed_id).provider_response == expected
+    case["delivery"][0] = True
+    retry = case["b"].post(case["url"], headers=case["hb"])
+    assert retry.status_code == (200 if has_proof else 422)
+    assert len(case["messages"]) == (1 if has_proof else 0)

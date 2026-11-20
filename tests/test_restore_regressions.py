@@ -87,3 +87,47 @@ def test_restore_regressions_reject_unmapped_or_unarchived_paths(tmp_path, inval
     with pytest.raises(ValueError, match="附件"):
         restore(backup, destination)
     assert not destination.exists()
+
+
+@pytest.mark.parametrize("source", ["dotenv", "process"])
+def test_maintenance_backup_uses_deployment_paths(tmp_path, monkeypatch, source):
+    import subprocess
+    import sys
+    from sqlalchemy.orm import Session
+    from app.db import create_db_engine, init_db
+    from app.models import ExamResource, User
+
+    shutil.copytree(Path(__file__).resolve().parents[1] / "app", tmp_path / "app",
+                    ignore=shutil.ignore_patterns("__pycache__", "static", "templates"))
+    data = tmp_path / "recruitment data"
+    database = data / "sqlite" / "recruitment.db"
+    runtime = tmp_path / "deployed settings.env"
+    files = {"uploads/resume.txt": data / "uploads" / "resume.txt", "runtime.env": runtime,
+             "users/1/smtp.runtime.env": data / "users" / "1" / "smtp.runtime.env"}
+    for name, path in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("LLM_PROVIDER=mock\n" if path == runtime else name, encoding="utf-8")
+    engine = create_db_engine(f"sqlite:///{database.as_posix()}")
+    init_db(engine)
+    with Session(engine) as session:
+        session.add(User(username="existing-hr", normalized_username="existing-hr", password_hash="synthetic"))
+        session.add(ExamResource(kind="assessment", title="虚构试卷", url="https://example.test/paper",
+                                 file_path=str(files["uploads/resume.txt"])))
+        session.commit()
+    engine.dispose()
+    settings = {"APP_DATA_DIR": data.as_posix(), "APP_RUNTIME_ENV": runtime.as_posix(),
+                "DATABASE_URL": f"sqlite:///{database.as_posix()}"}
+    (tmp_path / ".env").write_text("".join(f"{k}='{v}'\n" for k, v in settings.items()), encoding="utf-8")
+    for name, value in settings.items():
+        if source == "process":
+            monkeypatch.setenv(name, value)
+        else:
+            monkeypatch.delenv(name, raising=False)
+    command = "from app import accounts; accounts._password = lambda: 'synthetic-password'; accounts.main()"
+    subprocess.run([sys.executable, "-B", "-c", command, "assign-legacy", "existing-hr"], cwd=tmp_path, check=True, capture_output=True, timeout=45)
+    backup, = (database.parent / "backups").glob("*.db")
+    restored = restore(backup, tmp_path / "restored")
+    for name, original in files.items():
+        assert (restored.parent / name).read_bytes() == original.read_bytes()
+    with sqlite3.connect(restored) as connection:
+        assert connection.execute("SELECT file_path FROM exam_resources").fetchone()[0] == str(restored.parent / "uploads/resume.txt")

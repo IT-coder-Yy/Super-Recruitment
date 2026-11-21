@@ -78,7 +78,15 @@ def authenticated_client(client: TestClient):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    yield client
+    from sqlalchemy import select
+    from app.models import User
+    from app.ownership import account_scope
+    with app_db.SessionLocal.begin() as session:
+        user = session.scalar(select(User).where(User.normalized_username == "existing-test-user"))
+        user.is_admin = user.can_approve_offers = True
+        user_id = user.id
+    with account_scope(user_id):
+        yield client
     client.cookies.clear()
 
 
@@ -407,7 +415,7 @@ def test_all_management_pages_render(
         "/",
         "/dashboard",
         "/candidates",
-        "/candidates/1",
+        f"/candidates/{authenticated_client.get('/api/candidates').json()[0]['candidate_id']}",
         "/import",
         "/mock-platform",
         "/evaluations",
@@ -483,7 +491,7 @@ def test_offer_and_onboarding_full_loop(
         assert sent_exam.json()["status"] == "mocked", sent_exam.text
         assert _application_row(authenticated_client, application_id)["status"] == ("assessment_pending" if version == 0 else "written_pending")
         concluded = authenticated_client.post(f"/api/applications/{application_id}/exams/decision", headers=_csrf_headers(authenticated_client),
-            data={"kind": kind, "result": "passed", "note": "HR 核实虚构结果通过", "version": version})
+            data={"kind": kind, "resource_id": resource_id, "result": "passed", "note": "HR 核实虚构结果通过", "version": version})
         assert concluded.status_code == 200, concluded.text
 
     scheduled = authenticated_client.post(
@@ -821,12 +829,18 @@ def test_two_hr_smtp_isolation_sending_and_retry(authenticated_client, smtp_runt
         with app_db.SessionLocal() as session:
             user_b = session.scalar(select(User.id).where(User.normalized_username == "smtp-other-hr"))
             assert app_config.smtp_settings(user_b)["SMTP_USERNAME"] == "hr-b@example.test"
-            application = session.scalar(select(Application).join(Candidate).where(Candidate.email.is_not(None)))
-            interviews = [Interview(application_id=application.id, round=100 + index,
-                booking_token=f"synthetic-smtp-test-token-{index}", booking_token_expires_at=datetime.now(timezone.utc) + timedelta(days=1)) for index in range(4)]
-            session.add_all(interviews)
-            session.commit()
-            ids = [interview.id for interview in interviews]
+        from app.ownership import account_scope
+        from app.seed import seed_database
+        ids = []
+        for index, owner_id in enumerate([user_a, user_b, user_b, user_a]):
+            with account_scope(owner_id), app_db.SessionLocal.begin() as session:
+                seed_database(session)
+                application = session.scalar(select(Application).join(Candidate).where(Candidate.email.is_not(None)))
+                interview = Interview(application_id=application.id, round=100 + index,
+                    booking_token=f"synthetic-smtp-test-token-{index}", booking_token_expires_at=datetime.now(timezone.utc) + timedelta(days=1))
+                session.add(interview)
+                session.flush()
+                ids.append(interview.id)
         for active_client, headers, interview_id in [(authenticated_client, headers_a, ids[0]), (client_b, headers_b, ids[1])]:
             response = active_client.post(f"/api/interviews/{interview_id}/send-invite", headers=headers)
             assert response.status_code == 200 and response.json()["status"] == "sent", response.text
@@ -844,7 +858,7 @@ def test_two_hr_smtp_isolation_sending_and_retry(authenticated_client, smtp_runt
         assert authenticated_client.post(f"/api/interviews/{ids[3]}/send-invite", headers=headers_a).json()["status"] == "failed"
         before_retry = len(calls)
         blocked = client_b.post(f"/api/interviews/{ids[3]}/send-invite", headers=headers_b)
-        assert blocked.status_code == 409 and "原发送 HR" in blocked.json()["detail"]
+        assert blocked.status_code == 403 and "其他账号" in blocked.json()["detail"]
         assert len(calls) == before_retry and len(sent) == 3
         fail_users.clear()
         assert authenticated_client.post(f"/api/interviews/{ids[3]}/send-invite", headers=headers_a).json()["status"] == "sent"

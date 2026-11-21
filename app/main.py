@@ -5,14 +5,15 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from zoneinfo import ZoneInfo
 import secrets
+import re
 import time
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import desc, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -50,12 +51,14 @@ from app.models import (
     Evaluation,
     ExportRun,
     ExportRunStatus,
+    ExamResource,
     FollowUpStatus,
     FollowUpTask,
     Interview,
     InterviewSlot,
     InterviewSlotStatus,
     InterviewStatus,
+    ImportTask,
     Job,
     Notification,
     NotificationStatus,
@@ -70,6 +73,7 @@ from app.seed import seed_database
 from app.workbench import appointment_time, build_workbench_context
 from app.interview_calendar import build_interview_calendar
 from app.services.auth import current_actor, current_user_id, hash_password, normalize_username, verify_password
+from app.ownership import AccountAccessDenied, account_scope
 from app.services.candidates import normalize_name, normalize_phone, revise_candidate
 from app.services.exporter import export_recruitment_csv, export_recruitment_xlsx
 from app.services.imports import (
@@ -84,6 +88,7 @@ from app.services.imports import (
     build_rule_parse,
 )
 from app.services.offers import (
+    authorize_handover_resend,
     approve_offer,
     save_offer_terms,
     return_offer,
@@ -121,7 +126,7 @@ from app.services.workflow import (
 
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
-from app.services.periodic import recover_inflight, run_followups
+from app.services.periodic import recover_inflight, run_account_followups
 
 
 @asynccontextmanager
@@ -130,7 +135,7 @@ async def lifespan(application):
     scheduler = None
     if get_setting("FOLLOWUP_ENABLED", "true").lower() not in {"false", "0", "no"}:
         scheduler = BackgroundScheduler(timezone="UTC")
-        scheduler.add_job(run_followups, "interval", seconds=max(1, int(get_setting("FOLLOWUP_INTERVAL_SECONDS", "900"))),
+        scheduler.add_job(run_account_followups, "interval", seconds=max(1, int(get_setting("FOLLOWUP_INTERVAL_SECONDS", "900"))),
                           args=[SessionLocal], max_instances=1, coalesce=True, next_run_time=datetime.now(timezone.utc))
         scheduler.start()
     application.state.followup_scheduler = scheduler
@@ -213,10 +218,52 @@ def _followup_scope(application_ids):
 
 def startup() -> None:
     init_db()
-    with session_scope() as session:
-        recover_inflight(session)
-        if (session.scalar(select(func.count(Candidate.id))) or 0) == 0:
-            seed_database(session)
+    with account_scope(None), SessionLocal(info={"account_id": None}) as session:
+        empty = not session.scalar(select(func.count(Candidate.id)))
+    if empty:
+        from app.seed import initialize_demo
+        initialize_demo(SessionLocal)
+    with SessionLocal() as session:
+        user_ids = session.scalars(select(User.id)).all()
+    for user_id in user_ids:
+        with account_scope(user_id), session_scope(SessionLocal) as session:
+            recover_inflight(session)
+
+
+@app.exception_handler(AccountAccessDenied)
+async def account_access_denied(request, exc):
+    return JSONResponse({"detail": str(exc)}, status_code=403)
+
+
+def _public_account(path: str) -> int:
+    parts = path.split("/")
+    model, field = (Interview, Interview.booking_token) if parts[1] == "schedule" else (Offer, Offer.candidate_token)
+    with account_scope(None), SessionLocal(info={"account_id": None}) as session:
+        return session.scalar(select(model.owner_user_id).join(User, User.id == model.owner_user_id).where(
+            field == parts[2], User.is_active.is_(True),
+        )) or 0
+
+
+def _foreign_resource(request: Request, user_id: int) -> bool:
+    """直接访问其他账号的 ID 返回 403；列表和关联查询由账号范围统一过滤。"""
+    models = {"candidates": Candidate, "applications": Application, "interviews": Interview,
+              "offers": Offer, "onboarding": OnboardingTask, "follow-ups": FollowUpTask,
+              "notifications": Notification, "import/tasks": ImportTask, "exams/resources": ExamResource}
+    match = re.match(r"^/(?:api/)?(" + "|".join(models) + r")/(\d+)(?:/|$)", request.url.path)
+    targets = [(models[match[1]], int(match[2]))] if match else []
+    for name, model in (("offer_id", Offer), ("application_id", Application), ("job_id", Job), ("resource_id", ExamResource)):
+        value = request.query_params.get(name)
+        if value and value.isdecimal():
+            targets.append((model, int(value)))
+    with account_scope(None), SessionLocal(info={"account_id": None}) as session:
+        for model, record_id in targets:
+            row = session.execute(select(model.owner_user_id).where(model.id == record_id)).first()
+            if row is not None and row[0] != user_id:
+                return True
+    return False
+
+
+
 
 
 @app.middleware("http")
@@ -233,7 +280,9 @@ async def require_authentication(request: Request, call_next):
             return Response("CSRF 校验失败，请刷新页面后重试", status_code=403)
 
     if path in PUBLIC_EXACT_PATHS or path.startswith(PUBLIC_PATH_PREFIXES):
-        return await call_next(request)
+        owner = _public_account(path) if path.startswith(("/schedule/", "/offer/")) else 0
+        with account_scope(owner):
+            return await call_next(request)
 
     user_id = request.session.get("user_id")
     user = None
@@ -241,7 +290,8 @@ async def require_authentication(request: Request, call_next):
         with SessionLocal() as session:
             user = session.get(User, user_id)
 
-    if user is None:
+    if user is None or not user.is_active:
+        request.session.clear()
         if path.startswith("/api/") or path in {"/docs", "/redoc", "/openapi.json"}:
             return JSONResponse({"detail": "请先登录"}, status_code=401)
         return RedirectResponse("/login", status_code=303)
@@ -249,11 +299,20 @@ async def require_authentication(request: Request, call_next):
     request.state.current_user = {
         "id": user.id,
         "username": user.username,
+        "is_admin": user.is_admin,
+        "can_approve_offers": user.is_admin or user.can_approve_offers,
     }
+    admin_action = (path.startswith("/api/settings/llm") or path.startswith("/settings/llm")
+                    or path == "/settings/wecom" or path == "/settings" and request.method == "POST")
+    if admin_action and not user.is_admin:
+        return JSONResponse({"detail": "当前账号没有此操作权限"}, status_code=403)
+    if _foreign_resource(request, user.id):
+        return JSONResponse({"detail": "无权访问其他账号的数据"}, status_code=403)
     actor_token = current_actor.set(f"{user.id}:{user.username}")
     user_token = current_user_id.set(user.id)
     try:
-        return await call_next(request)
+        with account_scope(user.id):
+            return await call_next(request)
     finally:
         current_actor.reset(actor_token)
         current_user_id.reset(user_token)
@@ -694,7 +753,7 @@ def login(
             User.normalized_username == normalize_username(username)
         )
     )
-    if user is None or not verify_password(password, user.password_hash):
+    if user is None or not user.is_active or not verify_password(password, user.password_hash):
         _record_login_failure(request, username)
         return templates.TemplateResponse(
             request=request,
@@ -1100,11 +1159,7 @@ def offers_page(
 ):
     offers = session.scalars(select(Offer).where(Offer.application_id.in_(
         _application_ids(_recruitment_type(request)))).order_by(desc(Offer.created_at)).limit(200)).all()
-    selected_offer = (
-        next((item for item in offers if item.id == offer_id), None)
-        if offer_id
-        else (offers[0] if offers else None)
-    )
+    selected_offer = session.get(Offer, offer_id) if offer_id is not None else next(iter(offers), None)
     return _render(
         request,
         session,
@@ -1130,10 +1185,15 @@ def onboarding_page(request: Request, session: Session = Depends(get_db)):
 
 
 @app.get("/notifications")
-def notifications_page(request: Request, session: Session = Depends(get_db)):
-    notifications = session.scalars(
-        select(Notification).order_by(desc(Notification.created_at)).limit(200)
-    ).all()
+def notifications_page(request: Request, before_id: int | None = None, session: Session = Depends(get_db)):
+    query = select(Notification, ExamDispatch).outerjoin(ExamDispatch,
+        (Notification.target_type == "exam_dispatch") & (Notification.target_id == ExamDispatch.id))
+    if before_id is not None:
+        anchor = session.get(Notification, before_id)
+        if anchor is None:
+            raise HTTPException(404, "未找到通知记录")
+        query = query.where(tuple_(Notification.created_at, Notification.id) <= (anchor.created_at, anchor.id))
+    notifications = session.execute(query.order_by(Notification.created_at.desc(), Notification.id.desc()).limit(201)).all()
     exports = session.scalars(
         select(ExportRun).order_by(desc(ExportRun.created_at)).limit(20)
     ).all()
@@ -1142,8 +1202,12 @@ def notifications_page(request: Request, session: Session = Depends(get_db)):
         session,
         "notifications.html",
         "notifications",
-        notifications=notifications,
+        notifications=notifications[:200], before_id=before_id,
+        older_id=notifications[200][0].id if len(notifications) > 200 else None,
         exports=exports,
+        smtp_sender=smtp_settings(request.state.current_user["id"])["SMTP_FROM"],
+        latest_mail_ids=set(session.scalars(select(func.max(Notification.id)).where(Notification.channel == "email")
+            .group_by(Notification.target_type, Notification.target_id, Notification.template))),
     )
 
 
@@ -1866,7 +1930,12 @@ def create_offer_api(
         raise HTTPException(422, str(exc)) from exc
 
 
-@app.post("/api/offers/{offer_id}/approve")
+def require_offer_approval(request: Request) -> None:
+    if not request.state.current_user["can_approve_offers"]:
+        raise HTTPException(403, "当前账号没有此操作权限")
+
+
+@app.post("/api/offers/{offer_id}/approve", dependencies=[Depends(require_offer_approval)])
 def approve_offer_api(
     offer_id: int,
     reason: str = Form("单级审批通过"),
@@ -2288,7 +2357,7 @@ from app.services import exams
 
 
 @app.get("/exams")
-def exams_page(request: Request, application_id: int | None = None, resource_id: int | None = None, session: Session = Depends(get_db)):
+def exams_page(request: Request, application_id: int | None = None, resource_id: int | Literal[""] | None = None, session: Session = Depends(get_db)):
     recruitment_type = _recruitment_type(request)
     application_ids = _application_ids(recruitment_type)
     job_scope = True if recruitment_type == "all" else Job.recruitment_type == recruitment_type
@@ -2305,12 +2374,16 @@ def exams_page(request: Request, application_id: int | None = None, resource_id:
             preview = exams.preview_dispatch(application, resource)
         except ValueError as exc:
             preview_error = str(exc)
+    decision_kind = next((kind for kind, (_, stage, _) in exams.KINDS.items() if application and application.status == stage), None)
+    decision_dispatch = (exams.delivered_dispatch_for_decision(session, application.id, decision_kind, resource_id or None)
+                         if decision_kind else None)
     dispatches = session.scalars(select(ExamDispatch).where(ExamDispatch.application_id.in_(application_ids)).order_by(ExamDispatch.id.desc())).all()
     return _render(request, session, "exams.html", "exams", kinds=exams.KINDS,
         resources=session.scalars(select(ExamResource).where(resource_scope if recruitment_type != "all" else True).order_by(ExamResource.id.desc())).all(),
         jobs=session.scalars(select(Job).where(job_scope).order_by(Job.id)).all(),
         applications=session.scalars(select(Application).where(Application.id.in_(application_ids), Application.status.in_([ApplicationStatus.ASSESSMENT_PENDING, ApplicationStatus.WRITTEN_PENDING]))).all(),
-        selected_application=application, preview=preview, preview_error=preview_error, resource_request_key=secrets.token_hex(16),
+        selected_application=application, selected_resource=resource, preview=preview, preview_error=preview_error, resource_request_key=secrets.token_hex(16),
+        decision_kind=decision_kind if not resource_id or decision_dispatch else None, decision_dispatch=decision_dispatch,
         dispatches=[{"record": d, "notification": exams.dispatch_notification(session, d.id)} for d in dispatches])
 
 
@@ -2406,9 +2479,10 @@ def send_exam_api(application_id: int, resource_id: int = Form(...), candidate_r
 
 
 @app.post("/api/applications/{application_id}/exams/decision")
-def decide_exam_api(application_id: int, kind: str = Form(...), result: str = Form(...), note: str = Form(...), version: int = Form(...), session: Session = Depends(get_db)):
+def decide_exam_api(application_id: int, kind: str = Form(...), result: str = Form(...), note: str = Form(...),
+                    version: int = Form(...), resource_id: int | None = Form(None), session: Session = Depends(get_db)):
     try:
-        application = exams.decide_exam(session, application_id, kind=kind, result=result, note=note, version=version)
+        application = exams.decide_exam(session, application_id, kind=kind, result=result, note=note, version=version, resource_id=resource_id)
         session.commit()
         return {"ok": True, "status": application.status.value, "message": "HR 结论已保存", "redirect": f"/candidates/{application.candidate_id}?application_id={application.id}"}
     except ValueError as exc:
@@ -2435,7 +2509,7 @@ async def edit_offer_terms_api(offer_id: int, request: Request, session: Session
         raise HTTPException(409, str(exc)) from exc
 
 
-@app.post("/api/offers/{offer_id}/return")
+@app.post("/api/offers/{offer_id}/return", dependencies=[Depends(require_offer_approval)])
 def return_offer_api(offer_id: int, version: int = Form(...), reason: str = Form(...), session: Session = Depends(get_db)):
     try:
         return_offer(session, offer_id, version=version, reason=reason)
@@ -2494,6 +2568,17 @@ def retry_internal_notification(notification_id: int, session: Session = Depends
                         details={"previous_id": previous.id, "status": notification.status.value})
         session.commit()
         return notification_result(notification)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/notifications/{notification_id}/authorize-resend")
+def authorize_email_resend(notification_id: int, sender: str = Form(...), reason: str = Form(...), session: Session = Depends(get_db)):
+    try:
+        authorize_handover_resend(session, notification_id, sender=sender, reason=reason)
+        session.commit()
+        return {"ok": True, "message": "已确认当前发件邮箱，尚未发送；请回原业务页面重试。", "redirect": f"/notifications?before_id={notification_id}"}
     except ValueError as exc:
         session.rollback()
         raise HTTPException(409, str(exc)) from exc

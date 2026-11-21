@@ -18,6 +18,23 @@ RULES = DEFAULT_FOLLOWUP_RULES + (
 )
 
 
+def run_account_followups(session_factory, *, now=None):
+    from app.models import User
+    from app.ownership import account_scope
+    from app.services.auth import current_user_id
+    with session_factory() as session:
+        user_ids = session.scalars(select(User.id).where(User.is_active.is_(True))).all()
+    total = 0
+    for user_id in user_ids:
+        token = current_user_id.set(user_id)
+        try:
+            with account_scope(user_id):
+                total += run_followups(session_factory, now=now)
+        finally:
+            current_user_id.reset(token)
+    return total
+
+
 def recover_inflight(session):
     from app.models import Interview
     for item in session.scalars(select(Interview).where(Interview.meeting_status == "real_creating")):

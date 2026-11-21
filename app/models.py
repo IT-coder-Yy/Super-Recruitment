@@ -20,6 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.ownership import AccountOwned
 
 
 def utc_now() -> datetime:
@@ -175,12 +176,16 @@ class User(TimestampMixin, Base):
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     normalized_username: Mapped[str] = mapped_column(String(100), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+    can_approve_offers: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
 
 
-class Candidate(TimestampMixin, Base):
+class Candidate(AccountOwned, TimestampMixin, Base):
     __tablename__ = "candidates"
     __table_args__ = (
         UniqueConstraint(
+            "owner_user_id",
             "normalized_name",
             "normalized_phone",
             name="uq_candidate_normalized_identity",
@@ -210,10 +215,11 @@ class Candidate(TimestampMixin, Base):
     )
 
 
-class CandidateSource(TimestampMixin, Base):
+class CandidateSource(AccountOwned, TimestampMixin, Base):
     __tablename__ = "candidate_sources"
     __table_args__ = (
         UniqueConstraint(
+            "owner_user_id",
             "platform",
             "source_application_id",
             name="uq_candidate_source_application",
@@ -238,7 +244,7 @@ class CandidateSource(TimestampMixin, Base):
     application: Mapped[Application | None] = relationship(back_populates="source")
 
 
-class ImportTask(TimestampMixin, Base):
+class ImportTask(AccountOwned, TimestampMixin, Base):
     __tablename__ = "import_tasks"
     __table_args__ = (
         Index("ix_import_tasks_status", "status"),
@@ -275,7 +281,7 @@ class ImportTask(TimestampMixin, Base):
     )
 
 
-class ImportFile(TimestampMixin, Base):
+class ImportFile(AccountOwned, TimestampMixin, Base):
     __tablename__ = "import_files"
     __table_args__ = (Index("ix_import_files_task_id", "task_id"),)
 
@@ -301,7 +307,7 @@ class ImportFile(TimestampMixin, Base):
     task: Mapped[ImportTask] = relationship(back_populates="files")
 
 
-class ResumeParseRun(TimestampMixin, Base):
+class ResumeParseRun(AccountOwned, TimestampMixin, Base):
     __tablename__ = "resume_parse_runs"
     __table_args__ = (Index("ix_resume_parse_runs_task_id", "task_id"),)
 
@@ -322,10 +328,10 @@ class ResumeParseRun(TimestampMixin, Base):
     task: Mapped[ImportTask] = relationship(back_populates="parse_runs")
 
 
-class Job(TimestampMixin, Base):
+class Job(AccountOwned, TimestampMixin, Base):
     __tablename__ = "jobs"
     __table_args__ = (
-        UniqueConstraint("platform", "source_job_id", name="uq_job_source"),
+        UniqueConstraint("owner_user_id", "platform", "source_job_id", name="uq_job_source"),
         Index("ix_jobs_title", "title"),
     )
 
@@ -346,7 +352,7 @@ class Job(TimestampMixin, Base):
     applications: Mapped[list[Application]] = relationship(back_populates="job")
 
 
-class JobVersion(TimestampMixin, Base):
+class JobVersion(AccountOwned, TimestampMixin, Base):
     __tablename__ = "job_versions"
     __table_args__ = (
         UniqueConstraint("job_id", "version_hash", name="uq_job_version_hash"),
@@ -371,7 +377,7 @@ class JobVersion(TimestampMixin, Base):
     evaluations: Mapped[list[Evaluation]] = relationship(back_populates="job_version")
 
 
-class Application(TimestampMixin, Base):
+class Application(AccountOwned, TimestampMixin, Base):
     __tablename__ = "applications"
     __table_args__ = (
         UniqueConstraint("source_id", name="uq_application_source"),
@@ -427,18 +433,19 @@ class Application(TimestampMixin, Base):
     )
 
 
-class ApplicationSource(Base):
+class ApplicationSource(AccountOwned, Base):
     __tablename__ = "application_sources"
     source_id: Mapped[int] = mapped_column(ForeignKey("candidate_sources.id", ondelete="CASCADE"), primary_key=True)
     application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), index=True)
     source: Mapped[CandidateSource] = relationship()
 
 
-class ExamResource(TimestampMixin, Base):
+class ExamResource(AccountOwned, TimestampMixin, Base):
     __tablename__ = "exam_resources"
+    __table_args__ = (UniqueConstraint("owner_user_id", "request_key", name="uq_exam_resource_request"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="RESTRICT"))
-    request_key: Mapped[str | None] = mapped_column(String(64), unique=True)
+    request_key: Mapped[str | None] = mapped_column(String(64))
     kind: Mapped[str] = mapped_column(String(20))
     title: Mapped[str] = mapped_column(String(200))
     url: Mapped[str] = mapped_column(Text)
@@ -447,7 +454,7 @@ class ExamResource(TimestampMixin, Base):
     filename: Mapped[str | None] = mapped_column(String(255))
 
 
-class ExamDispatch(TimestampMixin, Base):
+class ExamDispatch(AccountOwned, TimestampMixin, Base):
     __tablename__ = "exam_dispatches"
     __table_args__ = (UniqueConstraint("application_id", "resource_id", name="uq_exam_dispatch"),)
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -459,7 +466,7 @@ class ExamDispatch(TimestampMixin, Base):
     application: Mapped[Application] = relationship()
 
 
-class Evaluation(TimestampMixin, Base):
+class Evaluation(AccountOwned, TimestampMixin, Base):
     __tablename__ = "evaluations"
     __table_args__ = (
         Index("ix_evaluations_application_id", "application_id"),
@@ -494,7 +501,7 @@ class Evaluation(TimestampMixin, Base):
     job_version: Mapped[JobVersion] = relationship(back_populates="evaluations")
 
 
-class EvaluationAttempt(TimestampMixin, Base):
+class EvaluationAttempt(AccountOwned, TimestampMixin, Base):
     __tablename__ = "evaluation_attempts"
     id: Mapped[int] = mapped_column(primary_key=True)
     application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), index=True)
@@ -504,7 +511,7 @@ class EvaluationAttempt(TimestampMixin, Base):
     error: Mapped[str | None] = mapped_column(Text)
 
 
-class Interview(TimestampMixin, Base):
+class Interview(AccountOwned, TimestampMixin, Base):
     __tablename__ = "interviews"
     __table_args__ = (
         UniqueConstraint("application_id", "round", name="uq_interview_round"),
@@ -547,7 +554,7 @@ class Interview(TimestampMixin, Base):
     )
 
 
-class InterviewSlot(TimestampMixin, Base):
+class InterviewSlot(AccountOwned, TimestampMixin, Base):
     __tablename__ = "interview_slots"
     __table_args__ = (
         UniqueConstraint(
@@ -574,7 +581,7 @@ class InterviewSlot(TimestampMixin, Base):
     interview: Mapped[Interview] = relationship(back_populates="slots")
 
 
-class Offer(TimestampMixin, Base):
+class Offer(AccountOwned, TimestampMixin, Base):
     __tablename__ = "offers"
     __table_args__ = (
         Index("ix_offers_application_id", "application_id"),
@@ -616,7 +623,7 @@ class Offer(TimestampMixin, Base):
     )
 
 
-class OfferApproval(TimestampMixin, Base):
+class OfferApproval(AccountOwned, TimestampMixin, Base):
     __tablename__ = "offer_approvals"
     __table_args__ = (Index("ix_offer_approvals_offer_id", "offer_id"),)
 
@@ -637,7 +644,7 @@ class OfferApproval(TimestampMixin, Base):
     offer: Mapped[Offer] = relationship(back_populates="approvals")
 
 
-class OnboardingTask(TimestampMixin, Base):
+class OnboardingTask(AccountOwned, TimestampMixin, Base):
     __tablename__ = "onboarding_tasks"
     __table_args__ = (
         Index("ix_onboarding_offer_id", "offer_id"),
@@ -665,7 +672,7 @@ class OnboardingTask(TimestampMixin, Base):
     offer: Mapped[Offer] = relationship(back_populates="onboarding_tasks")
 
 
-class Notification(TimestampMixin, Base):
+class Notification(AccountOwned, TimestampMixin, Base):
     __tablename__ = "notifications"
     __table_args__ = (
         Index("ix_notifications_status", "status"),
@@ -687,8 +694,14 @@ class Notification(TimestampMixin, Base):
     provider_response: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error_message: Mapped[str | None] = mapped_column(Text)
 
+    @property
+    def current_handover_audit_id(self) -> int | None:
+        metadata = self.provider_response or {}
+        # 旧通知曾用同一个字段记录当前交接和发送时的交接。
+        return metadata.get("current_handover_audit_id") or metadata.get("handover_audit_id")
 
-class ExportRun(TimestampMixin, Base):
+
+class ExportRun(AccountOwned, TimestampMixin, Base):
     __tablename__ = "export_runs"
     __table_args__ = (Index("ix_export_runs_created_at", "created_at"),)
 
@@ -705,7 +718,7 @@ class ExportRun(TimestampMixin, Base):
     message: Mapped[str | None] = mapped_column(Text)
 
 
-class FollowUpTask(TimestampMixin, Base):
+class FollowUpTask(AccountOwned, TimestampMixin, Base):
     __tablename__ = "follow_up_tasks"
     __table_args__ = (
         UniqueConstraint(
@@ -738,7 +751,7 @@ class FollowUpTask(TimestampMixin, Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class AuditLog(Base):
+class AuditLog(AccountOwned, Base):
     __tablename__ = "audit_logs"
     __table_args__ = (
         Index("ix_audit_entity", "entity_type", "entity_id"),

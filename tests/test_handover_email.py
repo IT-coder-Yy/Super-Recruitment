@@ -1,0 +1,685 @@
+"""交接后须显式确认发件身份，仍通过原业务入口发送；仅使用 SMTP 替身。"""
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from datetime import timedelta
+from html import unescape
+import json
+import re
+import smtplib
+import sys
+from unittest.mock import patch
+
+import pytest
+from sqlalchemy import func, select, update
+
+from app import accounts, config
+from app.accounts import assign_data
+from app.db import Base, init_db
+from app.models import ApplicationStatus, AuditLog, ExamDispatch, ExamResource, Interview, Notification, NotificationStatus, Offer, User, utc_now
+from app.ownership import account_scope
+from app.services import offers
+from app.services.periodic import recover_inflight
+from tests.test_account_isolation import secure_env
+from tests.test_demo_contracts import application, ready_offer, resource
+
+
+@pytest.fixture
+def handover(secure_env, monkeypatch):
+    a, b, ha, hb, factory, (aid, bid) = secure_env
+    attempts, messages, delivery = [], [], [False]
+
+    class SMTP:
+        def __init__(self, *args, **kwargs):
+            attempts.append(args)
+            if not delivery[0]:
+                raise smtplib.SMTPConnectError(421, "synthetic refusal before DATA")
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def login(self, *args): pass
+        def send_message(self, message):
+            messages.append(message)
+            return {}
+
+    monkeypatch.setattr(offers.smtplib, "SMTP_SSL", SMTP)
+    for owner, address in ((aid, "source@example.test"), (bid, "receiver@example.test")):
+        config.save_smtp_settings(user_id=owner, host="smtp.example.test", port=465, use_ssl=True,
+                                 username=address, password="synthetic-smtp-secret", from_address=address)
+
+    def prepare(kind="offer", *, transfer=True):
+        values = {}
+        with account_scope(aid), factory() as session:
+            if kind == "offer":
+                record, _ = ready_offer(session)
+                target_id = record.id
+                url = f"/api/offers/{target_id}/send"
+            elif kind == "exam":
+                record = application(session, ApplicationStatus.ASSESSMENT_PENDING)
+                paper = resource(session)
+                values = {"resource_id": paper.id, "candidate_revision": 1}
+                url = f"/api/applications/{record.id}/exams/send"
+            else:
+                record = application(session, ApplicationStatus.INTERVIEW_PENDING)
+        if kind == "interview":
+            booked = a.post(f"/api/applications/{record.id}/schedule", headers=ha)
+            assert booked.status_code == 200, booked.text
+            target_id = booked.json()["interview_id"]
+            url = f"/api/interviews/{target_id}/send-invite"
+        first = a.post(url, headers=ha, data=values)
+        assert first.status_code == 200, first.text
+        with factory() as session:
+            notification = session.get(Notification, first.json()["notification_id"])
+            assert notification.status == NotificationStatus.FAILED
+            nid, target_id = notification.id, notification.target_id
+            original = deepcopy(notification.provider_response)
+        if transfer:
+            with factory.begin() as session:
+                assign_data(session, session.get(User, bid), source=session.get(User, aid))
+        return {"a": a, "b": b, "ha": ha, "hb": hb, "factory": factory, "aid": aid, "bid": bid,
+                "kind": kind, "url": url, "values": values, "nid": nid, "target_id": target_id,
+                "original": original, "attempts": attempts, "messages": messages, "delivery": delivery}
+
+    return prepare
+
+
+def confirm(case, **changes):
+    values = {"sender": config.smtp_settings(case["bid"])["SMTP_FROM"], "reason": "职责交接后继续处理失败邮件", **changes}
+    return case["b"].post(f"/api/notifications/{case['nid']}/authorize-resend", headers=case["hb"], data=values)
+
+
+@pytest.mark.parametrize("kind", ["offer", "exam", "interview"])
+@pytest.mark.parametrize("same_mailbox", [False, True])
+def test_handover_confirmation_preserves_history_and_reuses_business_send(handover, kind, same_mailbox):
+    case = handover(kind)
+    if same_mailbox:
+        config.save_smtp_settings(user_id=case["bid"], host="smtp.example.test", port=465, use_ssl=True,
+            username="source@example.test", password="synthetic-smtp-secret", from_address="source@example.test")
+    assert case["b"].post(case["url"], headers=case["hb"], data=case["values"]).status_code in {409, 422}
+    endpoint = f"/api/notifications/{case['nid']}/authorize-resend"
+    assert case["a"].post(endpoint, headers=case["ha"], data={"sender": "source@example.test", "reason": "无权操作"}).status_code == 403
+    assert case["b"].post(endpoint, data={"sender": "receiver@example.test", "reason": "缺少 CSRF"}).status_code == 403
+    page = case["b"].get("/notifications")
+    assert endpoint in page.text and "暂不发送" in page.text
+    assert confirm(case).status_code == confirm(case).status_code == 200
+    assert len(case["attempts"]) == 1 and not case["messages"]
+    case["delivery"][0] = True
+    sent = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+    repeated = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+    assert sent.status_code == repeated.status_code == 200
+    assert sent.json()["notification_id"] == repeated.json()["notification_id"]
+    assert len(case["attempts"]) == 2 and len(case["messages"]) == 1
+    with case["factory"]() as session:
+        old = session.get(Notification, case["nid"])
+        new = session.get(Notification, sent.json()["notification_id"])
+        assert old.status == NotificationStatus.FAILED and old.owner_user_id == case["bid"]
+        assert all(old.provider_response[key] == value for key, value in case["original"].items())
+        assert old.provider_response["retry_id"] == new.id
+        assert new.status == NotificationStatus.SENT and new.provider_response["smtp_owner_id"] == case["bid"]
+        assert new.provider_response["retry_of"] == old.id
+        assert (new.recipient, new.subject, new.content) == (old.recipient, old.subject, old.content)
+        authorization = session.get(AuditLog, new.provider_response["resend_authorization_id"])
+        handover_audit = session.get(AuditLog, new.provider_response["handover_audit_id"])
+        assert authorization.actor == f"{case['bid']}:owner-b"
+        assert authorization.details["reason"] == "职责交接后继续处理失败邮件"
+        assert authorization.details["handover_audit_id"] == handover_audit.id
+        assert handover_audit.action == "account.data_transferred" and handover_audit.entity_id == case["bid"]
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "notification.resend_authorized")) == 1
+        assert "synthetic-smtp-secret" not in json.dumps([old.provider_response, new.provider_response, authorization.after_data])
+    assert confirm(case).status_code == 409
+
+
+@pytest.mark.parametrize("invalid", ["blank_reason", "wrong_sender", "missing_handover", "wrong_audit", "stale_attempt"])
+def test_handover_confirmation_rejects_invalid_authorization(handover, invalid):
+    case = handover()
+    values = {"reason": " "} if invalid == "blank_reason" else {"sender": "stale@example.test"} if invalid == "wrong_sender" else {}
+    with case["factory"].begin() as session:
+        old = session.get(Notification, case["nid"])
+        if invalid == "missing_handover":
+            old.provider_response = case["original"]
+        elif invalid == "wrong_audit":
+            audit = session.scalar(select(AuditLog).where(AuditLog.action == "account.created"))
+            old.provider_response = {**old.provider_response, "current_handover_audit_id": audit.id}
+        elif invalid == "stale_attempt":
+            session.add(Notification(owner_user_id=case["bid"], channel="email", status=NotificationStatus.FAILED,
+                content=old.content, target_type=old.target_type, target_id=old.target_id, template=old.template))
+    assert confirm(case, **values).status_code == 409
+    assert len(case["attempts"]) == 1
+    with case["factory"]() as session:
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "notification.resend_authorized")) == 0
+
+
+@pytest.mark.parametrize("status", [NotificationStatus.UNKNOWN, NotificationStatus.SENDING, NotificationStatus.SENT])
+def test_handover_cannot_authorize_nonfailed_delivery(handover, status):
+    case = handover()
+    with case["factory"].begin() as session:
+        session.get(Notification, case["nid"]).status = status
+    assert confirm(case).status_code == 409
+    assert len(case["attempts"]) == 1
+    if status == NotificationStatus.UNKNOWN:
+        verified = case["b"].post(f"/api/notifications/{case['nid']}/verify", headers=case["hb"],
+                                 data={"delivered": "false", "note": "虚构收件人确认未收到"})
+        assert verified.status_code == 200
+        assert confirm(case).status_code == 200
+
+
+def test_sender_change_after_confirmation_requires_new_authorization(handover):
+    case = handover()
+    assert confirm(case).status_code == 200
+    config.save_smtp_settings(user_id=case["bid"], host="smtp.example.test", port=465, use_ssl=True,
+        username="new@example.test", password="synthetic-smtp-secret", from_address="new@example.test")
+    assert case["b"].post(case["url"], headers=case["hb"]).status_code == 422
+    assert len(case["attempts"]) == 1
+    assert confirm(case).status_code == 200
+
+
+@pytest.mark.parametrize("kind", ["offer", "exam", "interview"])
+def test_authorization_does_not_bypass_business_guards(handover, kind):
+    case = handover(kind)
+    assert confirm(case).status_code == 200
+    with case["factory"].begin() as session:
+        if kind == "offer":
+            session.get(Offer, case["target_id"]).expires_at = utc_now() - timedelta(days=1)
+        elif kind == "exam":
+            dispatch = session.get(ExamDispatch, case["target_id"])
+            session.get(ExamResource, dispatch.resource_id).active = False
+        else:
+            session.get(Interview, case["target_id"]).booking_token_expires_at = utc_now() - timedelta(days=1)
+    assert case["b"].post(case["url"], headers=case["hb"], data=case["values"]).status_code in {409, 422}
+    assert len(case["attempts"]) == 1
+
+
+def test_concurrent_confirm_and_send_do_not_duplicate_mail(handover):
+    case = handover()
+    with ThreadPoolExecutor(2) as pool:
+        assert all(r.status_code == 200 for r in pool.map(lambda _: confirm(case), range(2)))
+    case["delivery"][0] = True
+    with ThreadPoolExecutor(2) as pool:
+        assert all(r.status_code == 200 for r in pool.map(
+            lambda _: case["b"].post(case["url"], headers=case["hb"]), range(2)))
+    assert len(case["messages"]) == 1 and len(case["attempts"]) == 2
+
+
+def test_second_handover_requires_receiver_to_confirm_again(handover):
+    case = handover()
+    assert confirm(case).status_code == 200
+    # 再交接回原账号，旧授权必须不能替代本次交接确认。
+    with case["factory"].begin() as session:
+        assign_data(session, session.get(User, case["aid"]), source=session.get(User, case["bid"]))
+    config.save_smtp_settings(user_id=case["aid"], host="smtp.example.test", port=465, use_ssl=True,
+        username="receiver@example.test", password="synthetic-smtp-secret", from_address="receiver@example.test")
+    assert case["a"].post(case["url"], headers=case["ha"]).status_code == 422
+    result = case["a"].post(f"/api/notifications/{case['nid']}/authorize-resend", headers=case["ha"],
+                           data={"sender": "receiver@example.test", "reason": "再次交接"})
+    assert result.status_code == 200
+
+
+@pytest.mark.parametrize("kind", ["offer", "exam", "interview"])
+@pytest.mark.parametrize("record_type, current_filter", [("autumn", "internship"), ("internship", "autumn")])
+def test_handover_retry_link_reaches_record_across_recruitment_filters(handover, kind, record_type, current_filter):
+    case = handover(kind)
+    with case["factory"].begin() as session:
+        model = {"offer": Offer, "exam": ExamDispatch, "interview": Interview}[kind]
+        session.get(model, case["target_id"]).application.job.recruitment_type = record_type
+    page = case["b"].get("/notifications?recruitment_type=" + current_filter)
+    href = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', page.text)[1])
+    target = case["b"].get(href)
+    assert target.status_code == 200
+    if kind == "exam":
+        assert "暂无发放记录" not in target.text
+    else:
+        assert f'action="{case["url"]}"' in target.text
+    foreign = case["a"].get(href)
+    assert foreign.status_code == 403 or (
+        "暂无发放记录" in foreign.text if kind == "exam" else f'action="{case["url"]}"' not in foreign.text)
+
+
+@pytest.mark.parametrize("kind", ["offer", "exam", "interview"])
+def test_repeated_handover_failures_keep_history_and_allow_fresh_confirmation(handover, kind):
+    case = handover(kind)
+    assert confirm(case).status_code == 200
+    previous_id = case["nid"]
+    with case["factory"]() as session:
+        handover_id = session.get(Notification, previous_id).current_handover_audit_id
+    for _ in range(3):
+        response = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+        assert response.status_code == 200
+        latest_id = response.json()["notification_id"]
+        with case["factory"]() as session:
+            previous, latest = session.get(Notification, previous_id), session.get(Notification, latest_id)
+            assert latest.status == NotificationStatus.FAILED
+            assert latest.provider_response["handover_audit_id"] == handover_id
+            assert latest.provider_response["retry_of"] == previous.id
+            assert previous.provider_response["retry_id"] == latest.id
+            assert (latest.recipient, latest.subject, latest.content) == (previous.recipient, previous.subject, previous.content)
+        previous_id = latest_id
+    assert confirm(case).status_code == 409
+    case["nid"] = latest_id
+    assert f'/api/notifications/{latest_id}/authorize-resend' in case["b"].get("/notifications").text
+    config.save_smtp_settings(user_id=case["bid"], host="smtp.example.test", port=465, use_ssl=True,
+        username="changed@example.test", password="synthetic-smtp-secret", from_address="changed@example.test")
+    assert case["b"].post(case["url"], headers=case["hb"], data=case["values"]).status_code in {409, 422}
+    assert len(case["attempts"]) == 4
+    assert confirm(case).status_code == 200
+    case["delivery"][0] = True
+    sent = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+    repeated = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+    assert sent.status_code == repeated.status_code == 200
+    assert sent.json()["notification_id"] == repeated.json()["notification_id"]
+    assert len(case["attempts"]) == 5 and len(case["messages"]) == 1
+    with case["factory"]() as session:
+        latest = session.get(Notification, sent.json()["notification_id"])
+        assert latest.status == NotificationStatus.SENT
+        assert latest.provider_response["smtp_from"] == "changed@example.test"
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "notification.resend_authorized")) == 2
+
+
+@pytest.mark.parametrize("kind", ["offer", "exam", "interview"])
+@pytest.mark.parametrize("already_assigned", [False, True])
+def test_legacy_assignment_cli_allows_controlled_resend(handover, monkeypatch, kind, already_assigned):
+    case = handover(kind, transfer=False)
+    with case["factory"].begin() as session:
+        for table in Base.metadata.sorted_tables:
+            if "owner_user_id" in table.c:
+                session.execute(update(table).values(owner_user_id=None))
+    engine = case["factory"].kw["bind"]
+    monkeypatch.setattr(accounts, "engine", engine)
+    monkeypatch.setattr(accounts, "SessionLocal", case["factory"])
+    monkeypatch.setattr(accounts, "init_db", lambda: init_db(engine))
+    command = ["accounts", "assign-legacy", "owner-b"]
+    monkeypatch.setattr(sys, "argv", command)
+    accounts.main()
+    if already_assigned:
+        # 模拟旧版本已分配但未记录邮件来源，普通 assign-legacy 不得自动补授权。
+        with case["factory"].begin() as session:
+            session.get(Notification, case["nid"]).provider_response = case["original"]
+        accounts.main()
+        assert confirm(case).status_code == 409
+        with case["factory"].begin() as session:
+            unassigned = Notification(channel="email", status=NotificationStatus.FAILED, content="未分配对照",
+                                      provider_response=case["original"])
+            session.add(unassigned)
+            session.flush()
+            unassigned_id = unassigned.id
+        monkeypatch.setattr(sys, "argv", command + ["--confirm-assigned-mail", str(case["nid"])])
+        accounts.main()
+    assert case["b"].post(case["url"], headers=case["hb"], data=case["values"]).status_code in {409, 422}
+    assert confirm(case).status_code == 200
+    assert len(case["attempts"]) == 1
+    with case["factory"]() as session:
+        old = session.get(Notification, case["nid"])
+        assert all(old.provider_response[key] == value for key, value in case["original"].items())
+        audit = session.get(AuditLog, old.current_handover_audit_id)
+        assert audit.action == "account.legacy_assigned" and audit.entity_id == case["bid"]
+        if already_assigned:
+            assert audit.after_data["confirmed_notification_ids"] == [case["nid"]]
+            assert audit.after_data["counts"] == {}
+            untouched = session.get(Notification, unassigned_id)
+            assert untouched.owner_user_id is None and untouched.provider_response == case["original"]
+    case["delivery"][0] = True
+    sent = case["b"].post(case["url"], headers=case["hb"], data=case["values"])
+    assert sent.status_code == 200 and len(case["messages"]) == 1
+    with case["factory"]() as session:
+        assert session.get(Notification, sent.json()["notification_id"]).status == NotificationStatus.SENT
+
+
+@pytest.mark.parametrize("invalid", ["missing", "foreign_owner", "unassigned", "unknown", "sent", "channel", "already_marked"])
+def test_legacy_mail_confirmation_rejects_invalid_records_atomically(handover, invalid):
+    case = handover()
+    with case["factory"].begin() as session:
+        old = session.get(Notification, case["nid"])
+        if invalid != "already_marked":
+            old.provider_response = case["original"]
+        if invalid in {"foreign_owner", "unassigned"}:
+            old.owner_user_id = case["aid"] if invalid == "foreign_owner" else None
+        elif invalid in {"unknown", "sent"}:
+            old.status = NotificationStatus(invalid)
+        elif invalid == "channel":
+            old.channel = "wecom"
+        valid = Notification(owner_user_id=case["bid"], channel="email", status=NotificationStatus.FAILED,
+                             content="虚构补录对照", provider_response=case["original"])
+        session.add(valid)
+        session.flush()
+        valid_id = valid.id
+    with pytest.raises(ValueError), case["factory"].begin() as session:
+        assign_data(session, session.get(User, case["bid"]),
+                    confirmed_mail_ids=[valid_id, 999999 if invalid == "missing" else case["nid"]])
+    with case["factory"]() as session:
+        assert session.get(Notification, valid_id).provider_response == case["original"]
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "account.legacy_assigned")) == 0
+
+
+def test_return_transfer_keeps_the_handover_used_by_each_attempt(handover):
+    case = handover()
+    assert confirm(case).status_code == 200
+    for _ in range(2):
+        assert case["b"].post(case["url"], headers=case["hb"]).status_code == 200
+    query = select(Notification).where(Notification.channel == "email").order_by(Notification.id)
+    with case["factory"].begin() as session:
+        attempts = session.scalars(query).all()
+        assert len(attempts) == 3
+        history = [{k: v for k, v in n.provider_response.items() if k != "current_handover_audit_id"} for n in attempts]
+        assert "handover_audit_id" not in history[0]
+        authorization = session.get(AuditLog, attempts[1].provider_response["resend_authorization_id"])
+        original_handover = authorization.details["handover_audit_id"]
+        assert all(n.provider_response["handover_audit_id"] == original_handover for n in attempts[1:])
+        assign_data(session, session.get(User, case["aid"]), source=session.get(User, case["bid"]))
+    with case["factory"]() as session:
+        attempts = session.scalars(query).all()
+        assert [{k: v for k, v in n.provider_response.items() if k != "current_handover_audit_id"} for n in attempts] == history
+        current = session.scalar(select(func.max(AuditLog.id)).where(AuditLog.action == "account.data_transferred"))
+        assert current != original_handover
+        assert all(n.owner_user_id == case["aid"] and n.current_handover_audit_id == current for n in attempts)
+
+
+@pytest.mark.parametrize("scenario", ["legacy_backfill", "previous_version", "return_to_sender"])
+def test_first_retry_requires_confirmation_for_this_handover(handover, scenario):
+    case = handover()
+    client, headers, owner = case["b"], case["hb"], case["bid"]
+    if scenario == "return_to_sender":
+        assert confirm(case).status_code == 200
+        with case["factory"].begin() as session:
+            assign_data(session, session.get(User, case["aid"]), source=session.get(User, owner))
+        client, headers, owner = case["a"], case["ha"], case["aid"]
+    else:
+        with case["factory"].begin() as session:
+            old = session.get(Notification, case["nid"])
+            old.provider_response = {"mode": "smtp", "transport": "ssl"}
+            if scenario == "legacy_backfill":
+                assign_data(session, session.get(User, owner), confirmed_mail_ids=[old.id])
+            else:
+                audit = session.scalar(select(AuditLog).where(AuditLog.action == "account.data_transferred"))
+                old.provider_response = {**old.provider_response, "handover_audit_id": audit.id}
+    # 在创建发送记录之前拦住任何未确认的尝试，测试不允许它到达 SMTP。
+    with patch.object(Notification, "__init__", side_effect=AssertionError("尚未确认就开始新发送")):
+        assert client.post(case["url"], headers=headers).status_code == 422
+    assert len(case["attempts"]) == 1
+    confirmed = client.post(f"/api/notifications/{case['nid']}/authorize-resend", headers=headers,
+        data={"sender": config.smtp_settings(owner)["SMTP_FROM"], "reason": "核实本次交接"})
+    assert confirmed.status_code == 200 and len(case["attempts"]) == 1
+    case["delivery"][0] = True
+    sent = client.post(case["url"], headers=headers)
+    assert sent.status_code == 200 and len(case["messages"]) == 1
+    with case["factory"]() as session:
+        new = session.get(Notification, sent.json()["notification_id"])
+        authorization = session.get(AuditLog, new.provider_response["resend_authorization_id"])
+        assert new.provider_response["handover_audit_id"] == authorization.details["handover_audit_id"]
+
+
+def test_older_notification_stays_reachable_after_confirming(handover):
+    case = handover()
+    now = utc_now()
+    with case["factory"].begin() as session:
+        session.add_all(Notification(owner_user_id=case["bid"], channel="internal", status=NotificationStatus.SENT,
+                                     content="后续通知", created_at=now) for _ in range(200))
+        session.add(Notification(owner_user_id=case["bid"], channel="internal", status=NotificationStatus.SENT,
+                                 content="回填的历史通知", created_at=now - timedelta(days=1)))
+    endpoint = f'/api/notifications/{case["nid"]}/authorize-resend'
+    first = case["b"].get("/notifications")
+    assert endpoint not in first.text and "回填的历史通知" not in first.text
+    older = re.search(r'<a[^>]+href="([^"]+)"[^>]*>更早的通知</a>', first.text)
+    assert older, "第 201 条通知无法从列表打开"
+    link = unescape(older[1])
+    older_page = case["b"].get(link)
+    assert endpoint in older_page.text and "回填的历史通知" in older_page.text
+    assert case["a"].get(link).status_code == 404
+    confirmed = confirm(case)
+    assert confirmed.status_code == 200
+    assert endpoint in case["b"].get(confirmed.json()["redirect"]).text
+
+
+def test_old_offer_retry_opens_exact_detail_beyond_list_limit(handover):
+    case = handover()
+    with account_scope(case["bid"]), case["factory"]() as session:
+        newer = application(session, ApplicationStatus.OFFER_PENDING)
+        newer.job.recruitment_type = "internship"
+        session.add_all(Offer(application_id=newer.id, candidate_name="较新实习", job_title="实习", content="虚构条款")
+                        for _ in range(200))
+        session.commit()
+    assert confirm(case).status_code == 200
+    html = case["b"].get("/notifications?recruitment_type=internship").text
+    href = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', html)[1])
+    target = case["b"].get(href)
+    button = f'action="{case["url"]}"'
+    assert button in case["b"].get(f'/offers?offer_id={case["target_id"]}&recruitment_type=autumn').text
+    assert target.status_code == 200 and button in target.text
+    assert case["a"].get(href).status_code == 403
+
+
+def test_exam_retry_keeps_original_paper_through_preview_and_send(handover):
+    case = handover("exam")
+    with account_scope(case["bid"]), case["factory"].begin() as session:
+        dispatch = session.get(ExamDispatch, case["target_id"])
+        application_id, resource_id, url = dispatch.application_id, dispatch.resource_id, dispatch.snapshot["url"]
+        session.add(ExamResource(job_id=dispatch.application.job_id, kind=dispatch.kind, title="第二份试卷",
+                                 url="https://exam.example.test/second"))
+    assert confirm(case).status_code == 200
+    html = case["b"].get("/notifications").text
+    href = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', html)[1])
+    landing = case["b"].get(href)
+    defaults = {}
+    for field in ("application_id", "resource_id"):
+        selector = re.search(fr'<select[^>]*name="{field}"[^>]*>(.*?)</select>', landing.text, re.S)
+        options = re.findall(r'<option value="(\d+)"([^>]*)>', selector[1])
+        defaults[field] = next((value for value, attrs in options if "selected" in attrs), options[0][0])
+    preview = case["b"].get("/exams", params=defaults)
+    form = re.search(r'<form method="post" action="([^"]+/exams/send)">(.*?)</form>', preview.text, re.S)
+    case["delivery"][0] = True
+    sent = case["b"].post(form[1], headers=case["hb"], data=dict(re.findall(r'name="([^"]+)" value="([^"]+)"', form[2])))
+    assert sent.status_code == 200 and len(case["messages"]) == 1
+    assert url in case["messages"][0].get_content()
+    assert f"application_id={application_id}" in href and f"resource_id={resource_id}" in href
+    assert f'action="{case["url"]}"' in landing.text
+    with case["factory"]() as session:
+        assert session.get(Notification, sent.json()["notification_id"]).target_id == case["target_id"]
+        assert session.scalar(select(func.count(ExamDispatch.id))) == 1
+
+
+@pytest.mark.parametrize("result, stage", [("passed", "written_pending"), ("failed", "rejected")])
+def test_exam_decision_uses_the_delivered_paper(handover, result, stage):
+    case = handover("exam")
+    client, headers, factory = case["b"], case["hb"], case["factory"]
+    assert confirm(case).status_code == 200
+    with account_scope(case["bid"]), factory.begin() as session:
+        first = session.get(ExamDispatch, case["target_id"])
+        second = ExamResource(job_id=first.application.job_id, kind=first.kind,
+                              title="替换卷 B", url="https://exam.example.test/b")
+        session.add(second)
+        session.flush()
+        aid, paper_a, paper_b = first.application_id, first.resource_id, second.id
+    case["delivery"][0] = True
+    sent = client.post(case["url"], headers=headers, data={**case["values"], "resource_id": paper_b})
+    assert sent.json()["status"] == "sent"
+    link = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', client.get("/notifications").text)[1])
+    action = f"/api/applications/{aid}/exams/decision"
+    assert f"resource_id={paper_a}" in link and action not in client.get(link).text
+
+    values = {"kind": "assessment", "result": result, "version": 0, "note": "HR 核实试卷结果"}
+    for params in ({"resource_id": paper_a}, {}):
+        assert client.post(action, headers=headers, data={**values, **params}).status_code == 409
+    with factory() as session:
+        assert session.get(ExamDispatch, first.id).application.status == ApplicationStatus.ASSESSMENT_PENDING
+        assert not session.scalar(select(AuditLog.id).where(AuditLog.action == "exam.assessment_decided"))
+
+    assert client.post(f"/api/exams/resources/{paper_b}/delete", headers=headers).json()["ok"]
+    history = unescape(client.get(link).text)
+    paper_link = re.search(fr'<a href="([^"]*&application_id={aid}&resource_id={paper_b})">打开这次发放的试卷</a>', history)
+    assert paper_link
+    page = client.get(paper_link[1])
+    form = re.search(fr'<form method="post" action="{action}"[^>]*>(.*?)</form>', page.text, re.S)
+    assert form and f'name="resource_id" value="{paper_b}"' in form[1]
+    fields = {**values, "resource_id": paper_b}
+    assert client.post(action, headers=headers, data=fields).json()["status"] == stage
+    assert client.post(action, headers=headers, data=fields).status_code == 200
+    assert client.post(action, headers=headers, data={**fields, "resource_id": paper_a}).status_code == 409
+    with factory() as session:
+        dispatch_id = session.get(Notification, sent.json()["notification_id"]).target_id
+        audit, = session.scalars(select(AuditLog).where(AuditLog.action == "exam.assessment_decided"))
+        assert audit.after_data["resource_id"] == paper_b and audit.after_data["dispatch_id"] == dispatch_id
+        assert audit.after_data == session.get(ExamDispatch, dispatch_id).application.extra_data["exams"]["assessment"]
+
+
+@pytest.mark.parametrize("stage", [ApplicationStatus.WRITTEN_PENDING, ApplicationStatus.INTERVIEW_PENDING])
+def test_exam_retry_for_finished_stage_keeps_original_candidate(handover, stage):
+    case = handover("exam")
+    with account_scope(case["bid"]), case["factory"]() as session:
+        dispatch = session.get(ExamDispatch, case["target_id"])
+        original = dispatch.application
+        other = application(session, ApplicationStatus.ASSESSMENT_PENDING)
+        other.job_id, other.job_version_id = original.job_id, original.job_version_id
+        original.status = stage
+        name, title = original.candidate.name, dispatch.resource.title
+        session.commit()
+    assert confirm(case).status_code == 200
+    notices = case["b"].get("/notifications").text
+    link = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', notices)[1])
+    body = case["b"].get(link).text.split("<h2>预览与发放</h2>")[1].split("</section>")[0]
+    assert "阶段已经结束" in body and name in body and title in body
+    assert 'action="/exams"' not in body and "/exams/send" not in body
+    assert "/exams/decision" not in body
+    current_page = case["b"].get(f"/exams?application_id={original.id}").text
+    assert ("/exams/decision" in current_page) == (stage == ApplicationStatus.WRITTEN_PENDING)
+    assert 'name="application_id"' in case["b"].get("/exams").text
+    assert len(case["attempts"]) == 1 and not case["messages"]
+
+
+@pytest.mark.parametrize("transferred_again", [False, True])
+def test_upgrade_recovers_sent_handover_from_old_authorization(handover, transferred_again):
+    case = handover()
+    assert confirm(case).status_code == 200
+    sent = case["b"].post(case["url"], headers=case["hb"]).json()["notification_id"]
+    repeated = case["b"].post(case["url"], headers=case["hb"]).json()["notification_id"]
+    factory = case["factory"]
+    with factory.begin() as session:
+        assign_data(session, session.get(User, case["aid"]), source=session.get(User, case["bid"]))
+    with factory.begin() as session:
+        mail = session.get(Notification, sent)
+        metadata = dict(mail.provider_response)
+        current = metadata.pop("current_handover_audit_id")
+        original = session.get(AuditLog, metadata["resend_authorization_id"]).details["handover_audit_id"]
+        assert original != current
+        # 91b77ae 的二次交接会把正在使用的编号写回历史字段。
+        mail.provider_response = {**metadata, "handover_audit_id": current}
+        for mail_id in (case["nid"], repeated):
+            other = session.get(Notification, mail_id)
+            legacy = dict(other.provider_response)
+            legacy["handover_audit_id"] = legacy.pop("current_handover_audit_id")
+            other.provider_response = legacy
+        session.connection().exec_driver_sql("DELETE FROM app_schema_versions WHERE version=3")
+    owner = case["bid"] if transferred_again else case["aid"]
+    if transferred_again:
+        with factory.begin() as session:
+            assign_data(session, session.get(User, owner), source=session.get(User, case["aid"]))
+    engine = factory.kw["bind"]
+    with factory() as session:
+        mail = session.get(Notification, sent)
+        current, stamp = mail.current_handover_audit_id, mail.updated_at
+    init_db(engine)
+    init_db(engine)
+    with factory() as session:
+        mail = session.get(Notification, sent)
+        assert mail.provider_response == {**metadata, "handover_audit_id": original, "current_handover_audit_id": current}
+        assert mail.owner_user_id == owner and mail.updated_at == stamp
+        for mail_id in (case["nid"], repeated):
+            other = session.get(Notification, mail_id)
+            assert other.current_handover_audit_id == current and "handover_audit_id" not in other.provider_response
+
+
+@pytest.mark.parametrize("old_version, has_proof", [(2, True), (4, True), (4, False)])
+def test_upgrade_reuses_only_confirmed_legacy_retry(handover, old_version, has_proof):
+    case = handover()
+    assert confirm(case).status_code == 200
+    failed_id = case["b"].post(case["url"], headers=case["hb"]).json()["notification_id"]
+    factory = case["factory"]
+    with factory.begin() as session:
+        failed = session.get(Notification, failed_id)
+        metadata = dict(failed.provider_response)
+        handover_id = metadata.pop("current_handover_audit_id")
+        assert handover_id == metadata["handover_audit_id"]
+        if not has_proof:
+            del metadata["resend_authorization_id"]
+        failed.provider_response = metadata
+        session.connection().exec_driver_sql("DELETE FROM app_schema_versions WHERE version > ?", (old_version,))
+
+    init_db(factory.kw["bind"])
+    init_db(factory.kw["bind"])
+    with factory() as session:
+        expected = {**metadata, "current_handover_audit_id": handover_id} if has_proof else metadata
+        assert session.get(Notification, failed_id).provider_response == expected
+    case["delivery"][0] = True
+    retry = case["b"].post(case["url"], headers=case["hb"])
+    assert retry.status_code == (200 if has_proof else 422)
+    assert len(case["messages"]) == (1 if has_proof else 0)
+
+
+@pytest.mark.parametrize("old_version, broken", [
+    (2, None), (4, None), (5, None), (5, "sender"), (5, "link"), (5, "target"), (5, "grant"),
+])
+def test_upgrade_follows_confirmed_retry_chain(handover, old_version, broken):
+    case = handover()
+    assert confirm(case).status_code == 200
+    ids = [case["b"].post(case["url"], headers=case["hb"]).json()["notification_id"] for _ in range(3)]
+    factory = case["factory"]
+    with factory.begin() as session:
+        first, middle, last = [session.get(Notification, nid) for nid in ids]
+        handover_id = first.provider_response["handover_audit_id"]
+        for attempt in (first, middle, last):
+            meta = dict(attempt.provider_response)
+            if old_version < 5 or attempt is not first:
+                meta.pop("current_handover_audit_id")
+            if attempt is first and broken == "grant":
+                meta.pop("resend_authorization_id")
+            if attempt is middle and broken == "sender":
+                meta["smtp_from"] = "another@example.test"
+            if attempt is middle and broken == "link":
+                meta.pop("retry_id")
+            if attempt is middle and broken == "target":
+                attempt.target_type = "interview"
+            attempt.provider_response = meta
+        previous = dict(last.provider_response)
+        session.connection().exec_driver_sql("DELETE FROM app_schema_versions WHERE version > ?", (old_version,))
+
+    init_db(factory.kw["bind"])
+    init_db(factory.kw["bind"])
+    with factory() as session:
+        expected = previous if broken else {**previous, "current_handover_audit_id": handover_id}
+        assert session.get(Notification, ids[-1]).provider_response == expected
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "notification.resend_authorized")) == 1
+    case["delivery"][0] = True
+    retry = case["b"].post(case["url"], headers=case["hb"])
+    assert retry.status_code == (422 if broken else 200)
+    assert len(case["messages"]) == (0 if broken else 1)
+
+
+@pytest.mark.parametrize("pending, received", [
+    (NotificationStatus.UNKNOWN, False), (NotificationStatus.SENDING, False), (NotificationStatus.UNKNOWN, True),
+])
+def test_upgrade_preserves_confirmation_until_delivery_is_verified(handover, pending, received):
+    case = handover()
+    assert confirm(case).status_code == 200
+    client, headers, factory = case["b"], case["hb"], case["factory"]
+    assert client.post(case["url"], headers=headers).status_code == 200
+    nid = client.post(case["url"], headers=headers).json()["notification_id"]
+    with factory.begin() as session:
+        mail = session.get(Notification, nid)
+        old = dict(mail.provider_response)
+        handover_id = old.pop("current_handover_audit_id")
+        assert "resend_authorization_id" not in old
+        mail.provider_response, mail.status = old, pending
+        session.connection().exec_driver_sql("DELETE FROM app_schema_versions WHERE version > 6")
+    init_db(factory.kw["bind"])
+    with factory.begin() as session:
+        mail = session.get(Notification, nid)
+        assert mail.status == pending and mail.provider_response == {**old, "current_handover_audit_id": handover_id}
+        recover_inflight(session)
+    case["delivery"][0] = True
+    client.post(case["url"], headers=headers)
+    assert len(case["attempts"]) == 3
+    verified = client.post(f"/api/notifications/{nid}/verify", headers=headers,
+                           data={"delivered": str(received).lower(), "note": "HR 已向收件人核实"})
+    assert verified.status_code == 200
+    retried = client.post(case["url"], headers=headers)
+    if not received:
+        assert retried.status_code == 200 and retried.json()["ok"]
+    assert len(case["messages"]) == (0 if received else 1)
+    with factory() as session:
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "notification.resend_authorized")) == 1

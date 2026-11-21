@@ -56,7 +56,14 @@ def env(tmp_path, monkeypatch):
         response = client.post("/login", data={"username": "demo-hr", "password": "password123", "csrf_token": token})
         assert response.status_code == 200
         csrf = re.search(r'name="csrf-token" content="([^"]+)"', response.text)[1]
-        yield client, {"X-CSRF-Token": csrf}, factory
+        from app.ownership import account_scope
+        with factory.begin() as session:
+            user = session.scalar(select(User).where(User.normalized_username == "demo-hr"))
+            user.is_admin = user.can_approve_offers = True
+            user_id = user.id
+        factory.configure(info={"account_id": user_id})
+        with account_scope(user_id):
+            yield client, {"X-CSRF-Token": csrf}, factory
     main.app.dependency_overrides.clear()
     engine.dispose()
 
@@ -222,12 +229,14 @@ def test_exam_delivery_is_separate_from_decision_and_freezes_resource(env, kind)
         with pytest.raises(ValueError, match="停用"):
             send_exam(session, app.id, paper.id, candidate_revision=1)
         session.rollback()
-        decided = decide_exam(session, app.id, kind=kind, result="passed", note="人工核实通过", version=0)
+        decided = decide_exam(session, app.id, kind=kind, resource_id=paper.id, result="passed", note="人工核实通过", version=0)
         session.commit()
-        again = decide_exam(session, app.id, kind=kind, result="passed", note="人工核实通过", version=0)
+        again = decide_exam(session, app.id, kind=kind, resource_id=paper.id, result="passed", note="人工核实通过", version=0)
         assert again.status == decided.status
+        with pytest.raises(ValueError, match="刷新"):
+            decide_exam(session, app.id, kind=kind, result="passed", note="人工核实通过", version=0)
         with pytest.raises(ValueError):
-            decide_exam(session, app.id, kind=kind, result="failed", note="旧页面冲突", version=0)
+            decide_exam(session, app.id, kind=kind, resource_id=paper.id, result="failed", note="旧页面冲突", version=0)
 
 
 def test_resource_download_auth_type_and_unused_delete(env):
@@ -310,7 +319,7 @@ def test_smtp_transport_and_uncertain_delivery_recovery(env, monkeypatch, ssl):
     result = client.post(f"/api/notifications/{sent.id}/verify", headers=headers, data={"delivered": "true", "note": "联系收件人核实已收到"})
     assert result.status_code == 200
     with factory() as session:
-        decide_exam(session, app.id, kind="assessment", result="passed", note="HR 核实结果", version=0)
+        decide_exam(session, app.id, kind="assessment", resource_id=paper.id, result="passed", note="HR 核实结果", version=0)
         session.commit()
 
 
@@ -362,14 +371,17 @@ def test_recovery_and_scheduler_without_visiting_pages(env, monkeypatch):
         assert session.scalar(select(FollowUpTask)).status == FollowUpStatus.RESOLVED
     triggered = Event()
     monkeypatch.setenv("FOLLOWUP_ENABLED", "true")
-    monkeypatch.setattr(main, "run_followups", lambda factory: triggered.set())
+    monkeypatch.setattr(main, "run_account_followups", lambda factory: triggered.set())
     with TestClient(main.app):
         assert triggered.wait(3), "应用生命周期没有实际触发调度入口"
 
 
-def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
+def test_upgrade_backup_is_reentrant_and_restorable(tmp_path, monkeypatch):
     from scripts.restore_backup import restore
-    database = tmp_path / "old.db"
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(config, "ENV_FILE", tmp_path / "active-settings.env")
+    database = tmp_path / "sqlite" / "old.db"
     # 用真实旧列定义构造包含资料、投递、评估、Offer 的旧库。
     engine = create_db_engine(f"sqlite:///{database.as_posix()}")
     init_db(engine)
@@ -391,13 +403,13 @@ def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
         connection.execute("DROP TABLE app_schema_versions")
         connection.execute("DELETE FROM application_sources")
     (tmp_path/"uploads").mkdir(); (tmp_path/"uploads"/"resume.txt").write_text("虚构原文", encoding="utf-8")
-    (tmp_path/"runtime.env").write_text("LLM_PROVIDER=mock", encoding="utf-8")
+    config.ENV_FILE.write_text("LLM_PROVIDER=mock", encoding="utf-8")
     personal_mail = tmp_path / "users" / "1" / "smtp.runtime.env"
     personal_mail.parent.mkdir(parents=True)
     personal_mail.write_text("SMTP_PASSWORD='synthetic-backup-secret'\n", encoding="utf-8")
     engine = create_db_engine(f"sqlite:///{database.as_posix()}")
     init_db(engine); init_db(engine)
-    backups = list((tmp_path/"backups").glob("*.db"))
+    backups = list((database.parent/"backups").glob("*.db"))
     assert len(backups) == 1
     with Session(engine) as session:
         assert session.scalar(select(func.count(ApplicationSource.source_id))) == 3
@@ -413,6 +425,7 @@ def test_upgrade_backup_is_reentrant_and_restorable(tmp_path):
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("SELECT file_path FROM exam_resources").fetchone()[0] == str(restored.parent/"uploads"/"resume.txt")
     assert (restored.parent/"uploads"/"resume.txt").read_text(encoding="utf-8") == "虚构原文"
+    assert (restored.parent/"runtime.env").read_bytes() == config.ENV_FILE.read_bytes()
     assert (restored.parent/"users"/"1"/"smtp.runtime.env").read_bytes() == personal_mail.read_bytes()
     engine.dispose()
 
@@ -544,14 +557,38 @@ def test_s06_concurrent_booking_confirms_only_one(env, monkeypatch, same_invitat
 @pytest.mark.parametrize("kind,result", [(k, r) for k in ["assessment", "written"] for r in ["skipped", "failed"]])
 def test_exam_branches_and_schedule_gate(env, kind, result):
     client, headers, factory = env
+    values = {"kind": kind, "result": result, "note": "HR 核实业务结论", "version": 0}
     with factory() as session:
         app = application(session, ApplicationStatus.ASSESSMENT_PENDING if kind == "assessment" else ApplicationStatus.WRITTEN_PENDING)
         paper = resource(session, kind)
         if result == "failed":
             send_exam(session, app.id, paper.id, candidate_revision=1)
+            values["resource_id"] = paper.id
     assert client.post(f"/api/applications/{app.id}/schedule", headers=headers).status_code == 409
-    response = post(client, headers, f"/api/applications/{app.id}/exams/decision", kind=kind, result=result, note="HR 核实业务结论", version=0)
+    response = post(client, headers, f"/api/applications/{app.id}/exams/decision", **values)
     assert response["status"] == ("rejected" if result == "failed" else "written_pending" if kind == "assessment" else "interview_pending")
+
+
+@pytest.mark.parametrize("has_assessment_paper", [False, True])
+def test_workbench_can_skip_written_without_a_paper(env, has_assessment_paper):
+    client, headers, factory = env
+    with factory() as session:
+        record = application(session, ApplicationStatus.WRITTEN_PENDING)
+        if has_assessment_paper:
+            resource(session, "assessment")
+    menu = client.get("/exams?recruitment_type=all").text
+    selector = re.search(r'<select[^>]*name="resource_id"([^>]*)>\s*<option value="([^"]*)"', menu)
+    assert selector and "required" not in selector[1] and selector[2] == ""
+    page = client.get("/exams", params={"application_id": record.id, "resource_id": selector[2]})
+    assert page.status_code == 200 and "/exams/send" not in page.text
+    form = re.search(r'<form method="post" action="([^"]+/exams/decision)"[^>]*>(.*?)</form>', page.text, re.S)
+    assert form and '<option value="skipped">' in form[2]
+    fields = dict(re.findall(r'<input[^>]*name="([^"]+)" value="([^"]+)"', form[2]))
+    assert fields["kind"] == "written"
+    result = post(client, headers, form[1], **fields, result="skipped", note="HR 核实本次笔试免试")
+    assert result["status"] == "interview_pending"
+    with factory() as session:
+        assert session.scalar(select(func.count(ExamDispatch.id))) == 0
 
 
 def test_exam_wrong_job_and_email_revision_retry_are_rejected(env, monkeypatch):
@@ -658,8 +695,14 @@ def test_csrf_and_two_users_real_audit_actors(env):
         token = re.search(r'name="csrf_token" value="([^"]+)"', second.get("/login").text)[1]
         second.post("/login", data={"username":"second-hr", "password":"password123", "csrf_token":token})
         csrf = re.search(r'name="csrf-token" content="([^"]+)"', second.get("/").text)[1]
-        post(second, {"X-CSRF-Token":csrf}, f"/api/applications/{app.id}/decision", status="assessment_pending", reason="第二位HR")
-    with factory() as session:
+        assert second.post(f"/api/applications/{app.id}/decision", headers={"X-CSRF-Token": csrf}, data={"status": "assessment_pending"}).status_code == 403
+        from app.ownership import account_scope
+        with factory() as session:
+            second_id = session.scalar(select(User.id).where(User.normalized_username == "second-hr"))
+        with account_scope(second_id), factory() as session:
+            other = application(session)
+        post(second, {"X-CSRF-Token":csrf}, f"/api/applications/{other.id}/decision", status="assessment_pending", reason="第二位HR")
+    with account_scope(None), factory(info={"account_id": None}) as session:
         actors = session.scalars(select(AuditLog.actor).where(AuditLog.action=="application.status_changed").order_by(AuditLog.id)).all()
         assert actors[0].endswith(":demo-hr") and actors[1].endswith(":second-hr")
 
@@ -766,7 +809,7 @@ def test_exam_metrics_separate_delivery_decision_and_legacy(env):
         send_exam(session, app.id, paper.id, candidate_revision=1)
         summary = main._dashboard_data(session)["exam_counts"]["assessment"]
         assert summary["sent"] == 1 and summary["passed"] == 0
-        decide_exam(session, app.id, kind="assessment", result="passed", note="已核实", version=0)
+        decide_exam(session, app.id, kind="assessment", resource_id=paper.id, result="passed", note="已核实", version=0)
         decide_exam(session, app.id, kind="written", result="skipped", note="HR 免试", version=1)
         application(session, ApplicationStatus.JOINED)
         summary = main._dashboard_data(session)["exam_counts"]
@@ -889,11 +932,11 @@ def test_fresh_process_restart_preserves_business_records_and_can_continue(env, 
     before=snapshot()
     file_before=pending.file_path.read_bytes()
     factory.kw["bind"].dispose()
-    environment={**os.environ,"APP_DATA_DIR":str(tmp_path),"APP_RUNTIME_ENV":str(tmp_path/"runtime.env"),"DATABASE_URL":f"sqlite:///{database}","LLM_PROVIDER":"mock","SMTP_HOST":"","WECOM_WEBHOOK_URL":"","FOLLOWUP_ENABLED":"false"}
+    environment={**os.environ,"APP_ENV":"production","APP_DATA_DIR":str(tmp_path),"APP_RUNTIME_ENV":str(tmp_path/"runtime.env"),"DATABASE_URL":f"sqlite:///{database}","LLM_PROVIDER":"mock","SMTP_HOST":"","WECOM_WEBHOOK_URL":"","FOLLOWUP_ENABLED":"false"}
     subprocess.run([sys.executable,"-B","-c","from app.main import startup; startup()"],env=environment,check=True,capture_output=True)
     assert snapshot()==before and pending.file_path.read_bytes()==file_before
     with factory() as session:
-        decide_exam(session,assess.id,kind="assessment",result="passed",note="重启后 HR 核实",version=0)
+        decide_exam(session,assess.id,kind="assessment",resource_id=paper.id,result="passed",note="重启后 HR 核实",version=0)
         confirmed=imports.confirm_import_task(session,task.id); session.commit()
         assert session.get(Application,assess.id).status==ApplicationStatus.WRITTEN_PENDING
         assert confirmed.candidate.email=="restart@example.test"

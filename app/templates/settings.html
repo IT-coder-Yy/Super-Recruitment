@@ -4,8 +4,9 @@
 {% block page_subtitle %}模型、通知、会议和采集器配置{% endblock %}
 {% block content %}
 <div class="workflow-page settings-layout">
-  <nav class="settings-nav" aria-label="设置分组"><a class="is-active" href="#model">AI 模型</a><a href="#mail">邮件</a><a href="#wecom">企业微信</a><a href="#meeting">腾讯会议</a><a href="#collectors">采集器</a><a href="#security">安全</a></nav>
+  <nav class="settings-nav" aria-label="设置分组">{% if current_user.is_admin %}<a class="is-active" href="#model">AI 模型</a><a href="#wecom">企业微信</a>{% endif %}<a href="#mail">邮件</a><a href="#meeting">腾讯会议</a><a href="#collectors">采集器</a><a href="#security">安全</a></nav>
   <div>
+    {% if current_user.is_admin %}
     <section class="work-surface settings-section" id="model"><header class="surface-header"><div><h2 class="surface-title">AI 模型</h2><p class="card-subtitle">默认 Mock，可切换 OpenAI-compatible 服务</p></div></header><div class="surface-body">
       <form method="post" action="/settings" data-unsaved-warning>
         <div class="form-grid"><div class="field"><label for="provider">运行模式</label><select class="select" id="provider" name="provider"><option value="mock" {% if settings.provider == 'mock' %}selected{% endif %}>Mock（零成本）</option><option value="openai_compatible" {% if settings.provider != 'mock' %}selected{% endif %}>OpenAI-compatible</option></select></div><div class="field"><label for="llmModel">模型名称</label><input class="input" id="llmModel" name="model" value="{{ settings.model }}" placeholder="deepseek-chat"></div><div class="field"><label for="base_url">API Base URL</label><input class="input" id="base_url" name="base_url" value="{{ settings.base_url }}" placeholder="https://api.deepseek.com"></div><div class="field"><label for="api_key">API Key</label><div class="workflow-password"><input class="input" type="password" id="api_key" name="api_key" autocomplete="new-password" placeholder="留空则保留现有密钥"><button class="button" type="button" data-password-toggle="api_key">显示</button></div></div></div>
@@ -29,6 +30,7 @@
       </div>
     </section>
 
+    {% endif %}
     <section class="work-surface settings-section" id="mail">
       <header class="surface-header"><div><h2 class="surface-title">我的发件邮箱</h2><p class="card-subtitle">仅用于 {{ current_user.username }} 发起的测评、笔试、面试邀约和 Offer 邮件</p></div><span class="status {% if integrations.smtp_configured %}status-success{% else %}status-warning{% endif %}">{% if integrations.smtp_source == 'personal' %}我的配置{% else %}部署默认{% endif %} · {% if integrations.smtp_configured %}SMTP{% else %}Mock{% endif %}</span></header>
       <div class="surface-body">
@@ -49,10 +51,10 @@
         {% if integrations.smtp_source == 'personal' %}<form method="post" action="/api/settings/smtp/reset"><div class="form-actions"><button class="button" type="submit" data-confirm="清除当前账号的个人邮箱配置，改用部署默认邮箱？">清除个人配置，使用部署默认</button></div></form>{% endif %}
       </div>
     </section>
-    {% for id,title,description,status in [('meeting','腾讯会议','候选人确认预约后创建会议', '真实模式已启用' if integrations.meeting_provider == 'tencent_mcp' else 'Mock 模式' if integrations.meeting_provider == 'mock' else '配置待修正'),('collectors','采集器','模拟平台可用，正式 API / RPA 需授权','部分可用')] %}
-    <section class="work-surface settings-section" id="{{ id }}"><header class="surface-header"><div><h2 class="surface-title">{{ title }}</h2><p class="card-subtitle">{{ description }}</p></div><span class="status status-warning">{{ status }}</span></header><div class="surface-body"><p class="muted">{% if id == 'meeting' %}Token {{ '已配置' if integrations.meeting_token_configured else '未配置' }}。真实模式由管理员在部署配置中启用；仅填写 Token 不会自动启用。建会失败或待核实时请到面试安排处理。已确认的面试可在数据看板的日历中查看，无需外部日历账号。{% else %}可上传本地简历或采集模拟平台数据；接入真实平台前需获得授权。{% endif %}</p><a class="button button-sm" href="{{ '/interviews' if id == 'meeting' else '/import' }}">{{ '查看面试安排' if id == 'meeting' else '前往数据采集' }}</a></div></section>
+    {% for id,title,description,status in [('meeting','腾讯会议','候选人确认预约后创建会议', '真实模式已启用' if integrations.meeting_provider == 'tencent_mcp' else 'Mock 模式' if integrations.meeting_provider == 'mock' else '配置待修正'),('collectors','采集器','上传本地简历，平台 API / RPA 需授权','部分可用')] %}
+    <section class="work-surface settings-section" id="{{ id }}"><header class="surface-header"><div><h2 class="surface-title">{{ title }}</h2><p class="card-subtitle">{{ description }}</p></div><span class="status status-warning">{{ status }}</span></header><div class="surface-body"><p class="muted">{% if id == 'meeting' %}Token {{ '已配置' if integrations.meeting_token_configured else '未配置' }}。真实模式由管理员在部署配置中启用；仅填写 Token 不会自动启用。建会失败或待核实时请到面试安排处理。已确认的面试可在数据看板的日历中查看，无需外部日历账号。{% else %}可上传本地简历；模拟采集仅在演示模式开放。接入真实平台前需获得授权。{% endif %}</p><a class="button button-sm" href="{{ '/interviews' if id == 'meeting' else '/import' }}">{{ '查看面试安排' if id == 'meeting' else '前往数据采集' }}</a></div></section>
     {% endfor %}
-    <section class="work-surface settings-section" id="security"><header class="surface-header"><h2 class="surface-title">安全边界</h2></header><div class="surface-body stack-sm"><div class="notice"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#info"/></svg>模型和内部群配置由整个部署共用；个人邮箱按登录账号隔离保存。授权码不回显，请限制服务器配置目录和备份的访问权限。运行日志不输出完整密钥；候选人资料、发送快照和操作审计仅供登录 HR 核对。</div><div class="notice notice-warning"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#alert"/></svg>处理真实候选人数据前，需要确认模型供应商、邮件和企业微信的数据处理条款。</div></div></section>
+    <section class="work-surface settings-section" id="security"><header class="surface-header"><h2 class="surface-title">账号与权限</h2></header><div class="surface-body stack-sm"><div class="notice">候选人、招聘流程、通知和操作记录按登录账号隔离。模型和内部群配置由管理员维护，个人邮箱仅对自己的账号生效。Offer 审批需要单独授权。</div></div></section>
   </div>
 </div>
 {% endblock %}
@@ -60,7 +62,7 @@
 (() => {
   const links = Array.from(document.querySelectorAll('.settings-nav a'));
   function updateSection() {
-    const selected = window.location.hash || '#model';
+    const selected = window.location.hash || links[0]?.getAttribute('href');
     links.forEach((link) => {
       const active = link.getAttribute('href') === selected;
       link.classList.toggle('is-active', active);

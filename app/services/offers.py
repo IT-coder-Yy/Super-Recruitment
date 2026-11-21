@@ -17,6 +17,7 @@ from app.services.auth import current_actor, current_user_id
 from app.models import (
     Application,
     ApplicationStatus,
+    AuditLog,
     ExportRun,
     ExportRunStatus,
     FollowUpStatus,
@@ -446,6 +447,38 @@ def build_offer_content(
     )
 
 
+def _smtp_sender(config: dict) -> dict:
+    return {"smtp_source": config["source"],
+            "smtp_owner_id": current_user_id.get() if config["source"] == "personal" else None,
+            "smtp_from": config["SMTP_FROM"], "smtp_username": config["SMTP_USERNAME"]}
+
+
+def authorize_handover_resend(session: Session, notification_id: int, *, sender: str, reason: str) -> None:
+    previous = lock_record(session, Notification, notification_id)
+    metadata = previous.provider_response or {}
+    handover_id = previous.current_handover_audit_id
+    handover = session.get(AuditLog, handover_id) if handover_id else None
+    if (previous.channel != "email" or previous.status != NotificationStatus.FAILED
+            or not handover or handover.action not in {"account.data_transferred", "account.legacy_assigned"}
+            or handover.entity_id != current_user_id.get() or previous.owner_user_id != current_user_id.get()):
+        raise ValueError("仅可确认交接给当前账号、且已明确失败的邮件")
+    latest = session.scalar(select(Notification.id).where(Notification.channel == "email",
+        Notification.target_type == previous.target_type, Notification.target_id == previous.target_id,
+        Notification.template == previous.template).order_by(Notification.id.desc()).limit(1))
+    if latest != previous.id:
+        raise ValueError("已有更新的发送记录，请刷新通知中心")
+    identity = _smtp_sender(smtp_settings(current_user_id.get()))
+    if not reason.strip() or not sender.strip() or sender.strip() != identity["smtp_from"]:
+        raise ValueError("请填写重发原因，并重新核对当前发件邮箱")
+    authorization = {"user_id": current_user_id.get(), "sender": identity, "handover_audit_id": handover.id}
+    if all((metadata.get("resend_authorization") or {}).get(key) == value for key, value in authorization.items()):
+        return
+    audit = write_audit_log(session, actor="HR", action="notification.resend_authorized", entity_type="notification",
+        entity_id=previous.id, before_data={key: metadata.get(key) for key in identity}, after_data=identity,
+        details={"reason": reason.strip(), "handover_audit_id": handover.id})
+    previous.provider_response = {**metadata, "resend_authorization": {**authorization, "audit_id": audit.id}}
+
+
 def send_email_notification(
     session: Session,
     *,
@@ -466,25 +499,38 @@ def send_email_notification(
     if previous and previous.status != NotificationStatus.FAILED:
         return previous
     smtp_config = smtp_settings(current_user_id.get())
-    sender = {
-        "smtp_source": smtp_config["source"],
-        "smtp_owner_id": current_user_id.get() if smtp_config["source"] == "personal" else None,
-        "smtp_from": smtp_config["SMTP_FROM"], "smtp_username": smtp_config["SMTP_USERNAME"],
-    }
-    if previous and "smtp_source" in (previous.provider_response or {}) and any(
-        previous.provider_response.get(key) != value for key, value in sender.items()
-    ):
-        raise ValueError("原发送邮箱与当前账号配置不同；请由原发送 HR 使用原邮箱重试，不能自动更换发件人")
+    sender = _smtp_sender(smtp_config)
+    metadata = (previous.provider_response or {}) if previous else {}
+    handover_id = previous.current_handover_audit_id if previous else None
+    authorization = metadata.get("resend_authorization") or {}
+    authorized = (handover_id is not None and authorization.get("handover_audit_id") == handover_id
+                  and authorization.get("user_id") == current_user_id.get() and authorization.get("sender") == sender)
+    # 只有上一次发送已在本次交接下进行，同一发件身份才能沿用确认。
+    new_handover = metadata.get("current_handover_audit_id") != metadata.get("handover_audit_id")
+    sender_changed = (handover_id is not None or "smtp_source" in metadata) and any(
+        metadata.get(key) != value for key, value in sender.items())
+    if (new_handover or sender_changed) and not authorized:
+        if handover_id:
+            raise ValueError("请先在通知中心为本次交接确认当前发件邮箱")
+        raise ValueError("原发送邮箱与当前配置不同，请恢复原发件身份后重试")
     if previous:
         recipient, subject, content = previous.recipient, previous.subject, previous.content
+    delivery = {**sender, "retry_of": previous.id} if previous else sender
+    if handover_id:
+        delivery.update(handover_audit_id=handover_id, current_handover_audit_id=handover_id)
+    if authorized:
+        delivery["resend_authorization_id"] = authorization["audit_id"]
     notification = Notification(channel="email", recipient=recipient, subject=subject, content=content,
         target_type=target_type, target_id=target_id, template=template, status=NotificationStatus.SENDING,
-        provider_response=sender)
+        provider_response=delivery)
     session.add(notification)
+    if previous:
+        session.flush()
+        previous.provider_response = {**metadata, "retry_id": notification.id}
     session.commit()
     smtp_host = smtp_config["SMTP_HOST"].strip()
     notification.status = NotificationStatus.MOCKED
-    notification.provider_response = {**sender, "mode": "mock", "reason": "SMTP 未配置"}
+    notification.provider_response = {**delivery, "mode": "mock", "reason": "SMTP 未配置"}
     if smtp_host:
         sending_data, accepted = False, False
         try:
@@ -513,7 +559,7 @@ def send_email_notification(
             notification.status = NotificationStatus.SENT if accepted else (
                 NotificationStatus.UNKNOWN if sending_data and not definitive else NotificationStatus.FAILED)
             notification.error_message = f"SMTP {type(exc).__name__}；" + ("送达结果待 HR 核实" if notification.status == NotificationStatus.UNKNOWN else "请检查设置后重试")
-        notification.provider_response = {**sender, "mode": "smtp", "transport": "ssl" if smtp_config["SMTP_SSL"].lower() in {"true", "1", "yes"} else "starttls"}
+        notification.provider_response = {**delivery, "mode": "smtp", "transport": "ssl" if smtp_config["SMTP_SSL"].lower() in {"true", "1", "yes"} else "starttls"}
     write_audit_log(session, actor="通知程序", action="notification.attempted", entity_type="notification", entity_id=notification.id,
                     after_data={"status": notification.status.value, "target_type": target_type, "target_id": target_id})
     session.commit()

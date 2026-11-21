@@ -491,7 +491,7 @@ def test_offer_and_onboarding_full_loop(
         assert sent_exam.json()["status"] == "mocked", sent_exam.text
         assert _application_row(authenticated_client, application_id)["status"] == ("assessment_pending" if version == 0 else "written_pending")
         concluded = authenticated_client.post(f"/api/applications/{application_id}/exams/decision", headers=_csrf_headers(authenticated_client),
-            data={"kind": kind, "result": "passed", "note": "HR 核实虚构结果通过", "version": version})
+            data={"kind": kind, "resource_id": resource_id, "result": "passed", "note": "HR 核实虚构结果通过", "version": version})
         assert concluded.status_code == 200, concluded.text
 
     scheduled = authenticated_client.post(

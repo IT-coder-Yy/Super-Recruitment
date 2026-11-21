@@ -103,7 +103,7 @@ def delivered_dispatch_for_decision(session: Session, application_id: int, kind:
     query = select(ExamDispatch).where(ExamDispatch.application_id == application_id, ExamDispatch.kind == kind)
     if resource_id is not None:
         query = query.where(ExamDispatch.resource_id == resource_id)
-    # 旧表单没有试卷 ID。发过多份卷时，不能用其中一份的送达记录替另一份下结论。
+    # 工作台未选卷时，仅在本阶段只有一条发放记录且已送达时预填试卷编号。
     matches = session.scalars(query.limit(2)).all()
     if len(matches) == 1:
         latest = dispatch_notification(session, matches[0].id)
@@ -116,6 +116,8 @@ def decide_exam(session: Session, application_id: int, *, kind: str, result: str
                 resource_id: int | None = None) -> Application:
     if kind not in KINDS or result not in {"passed", "failed", "skipped"} or not note.strip():
         raise ValueError("请选择通过、不通过或跳过，并填写核实说明")
+    if result != "skipped" and resource_id is None:
+        raise ValueError("缺少试卷编号，请刷新页面后选择已送达的试卷，再提交结论")
     application = lock_record(session, Application, application_id)
     data = deepcopy(application.extra_data or {})
     decisions = data.setdefault("exams", {})

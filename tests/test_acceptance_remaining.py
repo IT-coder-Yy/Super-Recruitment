@@ -95,7 +95,7 @@ def offer_from_normal_path(env, number=1, *, passed_exams=False):
         for version, kind in enumerate(['assessment', 'written']):
             rid = paper(client, headers, record.job_id, kind)
             post(client, headers, f'/api/applications/{record.id}/exams/send', resource_id=rid, candidate_revision=1)
-            post(client, headers, f'/api/applications/{record.id}/exams/decision', kind=kind, result='passed', note='HR 已核实', version=version)
+            post(client, headers, f'/api/applications/{record.id}/exams/decision', kind=kind, resource_id=rid, result='passed', note='HR 已核实', version=version)
     else:
         enter_interview(client, headers, record.id)
     booking = post(client, headers, f'/api/applications/{record.id}/schedule')
@@ -450,7 +450,7 @@ def test_both_hr_users_all_business_audit_actions(env):
                 for version, kind in enumerate(['assessment', 'written']):
                     rid = paper(client, csrf, record.job_id, kind)
                     post(client, csrf, f'/api/applications/{record.id}/exams/send', resource_id=rid, candidate_revision=2)
-                    post(client, csrf, f'/api/applications/{record.id}/exams/decision', kind=kind, result='passed', note='HR 已核实', version=version)
+                    post(client, csrf, f'/api/applications/{record.id}/exams/decision', kind=kind, resource_id=rid, result='passed', note='HR 已核实', version=version)
                     post(client, csrf, f'/api/exams/resources/{rid}/delete')
                 post(client, csrf, f'/api/offers/{offer.id}/return', version=1, reason='修订薪资')
                 post(client, csrf, f'/api/offers/{offer.id}/terms', version=1, **{**values, 'salary': '虚构：350 元/天'})
@@ -647,7 +647,7 @@ def test_beijing_midnight_dashboard_exports_and_stage_filters(env, monkeypatch):
         post(client, headers, f'/api/applications/{record.id}/decision', status='assessment_pending', reason='HR 审核')
         rid = paper(client, headers, record.job_id, 'assessment')
         post(client, headers, f'/api/applications/{record.id}/exams/send', resource_id=rid, candidate_revision=1)
-        post(client, headers, f'/api/applications/{record.id}/exams/decision', kind='assessment', result=decision, note='HR 核实', version=0)
+        post(client, headers, f'/api/applications/{record.id}/exams/decision', kind='assessment', resource_id=rid, result=decision, note='HR 核实', version=0)
         if decision != 'failed':
             post(client, headers, f'/api/applications/{record.id}/exams/decision', kind='written', result='skipped', note='HR 免试', version=1)
         expected[name] = (decision, 'skipped' if decision != 'failed' else '历史未记录 / 未办理', '', '')
@@ -723,16 +723,27 @@ def test_s07_s08_from_import_exam_branches_and_cross_resource_gate(env, kind, de
         session.commit()
     wrong_job = paper(client, headers, job.id, kind)
     assert client.post(endpoint, headers=headers, data={'resource_id': wrong_job, 'candidate_revision': 1}).status_code == 409
+    decision_url = f'/api/applications/{record.id}/exams/decision'
+    values = {'kind': kind, 'result': decision, 'note': 'HR 外部核实或有理由免试', 'version': version}
     if decision != 'skipped':
+        previewed = paper(client, headers, record.job_id, kind, title='仅预览的 A 卷')
+        preview = client.get('/exams', params={'application_id': record.id, 'resource_id': previewed})
+        assert preview.status_code == 200 and decision_url not in preview.text
         rid = paper(client, headers, record.job_id, kind)
         post(client, headers, endpoint, resource_id=rid, candidate_revision=1)
+        stale = client.post(decision_url, headers=headers, data=values)
+        assert stale.status_code == 409 and '刷新' in stale.json()['detail']
+        with factory() as session:
+            assert session.get(Application, record.id).status.value == f'{kind}_pending'
+            assert not session.scalar(select(AuditLog.id).where(
+                AuditLog.entity_id == record.id, AuditLog.action == f'exam.{kind}_decided'))
+        values['resource_id'] = rid
     assert client.post(f'/api/applications/{record.id}/schedule', headers=headers).status_code == 409
-    values = {'kind': kind, 'result': decision, 'note': 'HR 外部核实或有理由免试', 'version': version}
-    result = post(client, headers, f'/api/applications/{record.id}/exams/decision', **values)
+    result = post(client, headers, decision_url, **values)
     expected = 'rejected' if decision == 'failed' else 'written_pending' if kind == 'assessment' else 'interview_pending'
     assert result['status'] == expected
-    assert post(client, headers, f'/api/applications/{record.id}/exams/decision', **values)['status'] == expected
-    assert client.post(f'/api/applications/{record.id}/exams/decision', headers=headers, data={**values, 'result': 'skipped' if decision != 'skipped' else 'failed'}).status_code == 409
+    assert post(client, headers, decision_url, **values)['status'] == expected
+    assert client.post(decision_url, headers=headers, data={**values, 'result': 'skipped' if decision != 'skipped' else 'failed'}).status_code == 409
 
 
 @pytest.mark.parametrize('outcome', ['declined', 'expired'])

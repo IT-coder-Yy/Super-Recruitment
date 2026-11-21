@@ -229,12 +229,14 @@ def test_exam_delivery_is_separate_from_decision_and_freezes_resource(env, kind)
         with pytest.raises(ValueError, match="停用"):
             send_exam(session, app.id, paper.id, candidate_revision=1)
         session.rollback()
-        decided = decide_exam(session, app.id, kind=kind, result="passed", note="人工核实通过", version=0)
+        decided = decide_exam(session, app.id, kind=kind, resource_id=paper.id, result="passed", note="人工核实通过", version=0)
         session.commit()
-        again = decide_exam(session, app.id, kind=kind, result="passed", note="人工核实通过", version=0)
+        again = decide_exam(session, app.id, kind=kind, resource_id=paper.id, result="passed", note="人工核实通过", version=0)
         assert again.status == decided.status
+        with pytest.raises(ValueError, match="刷新"):
+            decide_exam(session, app.id, kind=kind, result="passed", note="人工核实通过", version=0)
         with pytest.raises(ValueError):
-            decide_exam(session, app.id, kind=kind, result="failed", note="旧页面冲突", version=0)
+            decide_exam(session, app.id, kind=kind, resource_id=paper.id, result="failed", note="旧页面冲突", version=0)
 
 
 def test_resource_download_auth_type_and_unused_delete(env):
@@ -317,7 +319,7 @@ def test_smtp_transport_and_uncertain_delivery_recovery(env, monkeypatch, ssl):
     result = client.post(f"/api/notifications/{sent.id}/verify", headers=headers, data={"delivered": "true", "note": "联系收件人核实已收到"})
     assert result.status_code == 200
     with factory() as session:
-        decide_exam(session, app.id, kind="assessment", result="passed", note="HR 核实结果", version=0)
+        decide_exam(session, app.id, kind="assessment", resource_id=paper.id, result="passed", note="HR 核实结果", version=0)
         session.commit()
 
 
@@ -555,13 +557,15 @@ def test_s06_concurrent_booking_confirms_only_one(env, monkeypatch, same_invitat
 @pytest.mark.parametrize("kind,result", [(k, r) for k in ["assessment", "written"] for r in ["skipped", "failed"]])
 def test_exam_branches_and_schedule_gate(env, kind, result):
     client, headers, factory = env
+    values = {"kind": kind, "result": result, "note": "HR 核实业务结论", "version": 0}
     with factory() as session:
         app = application(session, ApplicationStatus.ASSESSMENT_PENDING if kind == "assessment" else ApplicationStatus.WRITTEN_PENDING)
         paper = resource(session, kind)
         if result == "failed":
             send_exam(session, app.id, paper.id, candidate_revision=1)
+            values["resource_id"] = paper.id
     assert client.post(f"/api/applications/{app.id}/schedule", headers=headers).status_code == 409
-    response = post(client, headers, f"/api/applications/{app.id}/exams/decision", kind=kind, result=result, note="HR 核实业务结论", version=0)
+    response = post(client, headers, f"/api/applications/{app.id}/exams/decision", **values)
     assert response["status"] == ("rejected" if result == "failed" else "written_pending" if kind == "assessment" else "interview_pending")
 
 
@@ -805,7 +809,7 @@ def test_exam_metrics_separate_delivery_decision_and_legacy(env):
         send_exam(session, app.id, paper.id, candidate_revision=1)
         summary = main._dashboard_data(session)["exam_counts"]["assessment"]
         assert summary["sent"] == 1 and summary["passed"] == 0
-        decide_exam(session, app.id, kind="assessment", result="passed", note="已核实", version=0)
+        decide_exam(session, app.id, kind="assessment", resource_id=paper.id, result="passed", note="已核实", version=0)
         decide_exam(session, app.id, kind="written", result="skipped", note="HR 免试", version=1)
         application(session, ApplicationStatus.JOINED)
         summary = main._dashboard_data(session)["exam_counts"]
@@ -932,7 +936,7 @@ def test_fresh_process_restart_preserves_business_records_and_can_continue(env, 
     subprocess.run([sys.executable,"-B","-c","from app.main import startup; startup()"],env=environment,check=True,capture_output=True)
     assert snapshot()==before and pending.file_path.read_bytes()==file_before
     with factory() as session:
-        decide_exam(session,assess.id,kind="assessment",result="passed",note="重启后 HR 核实",version=0)
+        decide_exam(session,assess.id,kind="assessment",resource_id=paper.id,result="passed",note="重启后 HR 核实",version=0)
         confirmed=imports.confirm_import_task(session,task.id); session.commit()
         assert session.get(Application,assess.id).status==ApplicationStatus.WRITTEN_PENDING
         assert confirmed.candidate.email=="restart@example.test"

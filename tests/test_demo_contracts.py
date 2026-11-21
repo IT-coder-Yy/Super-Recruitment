@@ -565,6 +565,28 @@ def test_exam_branches_and_schedule_gate(env, kind, result):
     assert response["status"] == ("rejected" if result == "failed" else "written_pending" if kind == "assessment" else "interview_pending")
 
 
+@pytest.mark.parametrize("has_assessment_paper", [False, True])
+def test_workbench_can_skip_written_without_a_paper(env, has_assessment_paper):
+    client, headers, factory = env
+    with factory() as session:
+        record = application(session, ApplicationStatus.WRITTEN_PENDING)
+        if has_assessment_paper:
+            resource(session, "assessment")
+    menu = client.get("/exams?recruitment_type=all").text
+    selector = re.search(r'<select[^>]*name="resource_id"([^>]*)>\s*<option value="([^"]*)"', menu)
+    assert selector and "required" not in selector[1] and selector[2] == ""
+    page = client.get("/exams", params={"application_id": record.id, "resource_id": selector[2]})
+    assert page.status_code == 200 and "/exams/send" not in page.text
+    form = re.search(r'<form method="post" action="([^"]+/exams/decision)"[^>]*>(.*?)</form>', page.text, re.S)
+    assert form and '<option value="skipped">' in form[2]
+    fields = dict(re.findall(r'<input[^>]*name="([^"]+)" value="([^"]+)"', form[2]))
+    assert fields["kind"] == "written"
+    result = post(client, headers, form[1], **fields, result="skipped", note="HR 核实本次笔试免试")
+    assert result["status"] == "interview_pending"
+    with factory() as session:
+        assert session.scalar(select(func.count(ExamDispatch.id))) == 0
+
+
 def test_exam_wrong_job_and_email_revision_retry_are_rejected(env, monkeypatch):
     _, _, factory = env
     with factory() as session:

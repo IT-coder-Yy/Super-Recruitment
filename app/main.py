@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import secrets
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -2357,7 +2357,7 @@ from app.services import exams
 
 
 @app.get("/exams")
-def exams_page(request: Request, application_id: int | None = None, resource_id: int | None = None, session: Session = Depends(get_db)):
+def exams_page(request: Request, application_id: int | None = None, resource_id: int | Literal[""] | None = None, session: Session = Depends(get_db)):
     recruitment_type = _recruitment_type(request)
     application_ids = _application_ids(recruitment_type)
     job_scope = True if recruitment_type == "all" else Job.recruitment_type == recruitment_type

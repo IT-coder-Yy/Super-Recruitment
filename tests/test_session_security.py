@@ -1,8 +1,58 @@
 """会话密钥启动边界与伪造 Cookie 回归，全部使用隔离数据。"""
+import base64
+import hashlib
 import os
+from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 import pytest
+
+
+def test_parallel_first_start_keeps_a_single_complete_config(tmp_path):
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if not shell:
+        pytest.skip("需要 PowerShell 来运行首次初始化脚本")
+    root = Path(__file__).resolve().parents[1]
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "initialize_env.ps1"
+    shutil.copyfile(root / "scripts" / script.name, script)
+    shutil.copyfile(root / ".env.example", tmp_path / ".env.example")
+    worker = """
+$ErrorActionPreference = 'Stop'
+[Console]::WriteLine('ready')
+$null = [Console]::ReadLine()
+. ./scripts/initialize_env.ps1
+$saved = [IO.File]::ReadAllText((Join-Path $PWD '.env'))
+if ($SessionSecret -and -not $saved.Contains("APP_SECRET_KEY=$SessionSecret")) { exit 2 }
+$sha = [Security.Cryptography.SHA256]::Create()
+try { [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($saved))).Replace('-', '') }
+finally { $sha.Dispose() }
+"""
+    args = [shell, "-NoProfile", "-NonInteractive", "-Command", worker]
+    workers = [subprocess.Popen(args, cwd=tmp_path, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True) for _ in range(2)]
+    try:
+        assert all(process.stdout.readline().strip() == "ready" for process in workers)
+        for process in workers:
+            process.stdin.write("\n")
+            process.stdin.flush()
+        observed = [process.communicate(timeout=30)[0].strip() for process in workers]
+        assert all(process.returncode == 0 for process in workers)
+    finally:
+        for process in workers:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+    config = (tmp_path / ".env").read_bytes()
+    assert observed == [hashlib.sha256(config).hexdigest().upper()] * len(workers)
+    key = re.search(rb"(?m)^APP_SECRET_KEY=(\S+)", config)[1]
+    assert len(base64.b64decode(key, validate=True)) == 32
+    assert config.replace(key, b"") == (tmp_path / ".env.example").read_bytes()
+    subprocess.run([shell, "-NoProfile", "-File", str(script)], cwd=tmp_path, check=True)
+    assert hashlib.sha256((tmp_path / ".env").read_bytes()).hexdigest().upper() == observed[0]
 
 
 @pytest.mark.parametrize("key", [None, "", "change-this-local-secret", "change-this-local-secret          ", "short"])

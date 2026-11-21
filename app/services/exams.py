@@ -99,7 +99,21 @@ def dispatch_notification(session: Session, dispatch_id: int) -> Notification | 
                           .order_by(Notification.id.desc()))
 
 
-def decide_exam(session: Session, application_id: int, *, kind: str, result: str, note: str, version: int) -> Application:
+def delivered_dispatch_for_decision(session: Session, application_id: int, kind: str, resource_id: int | None) -> ExamDispatch | None:
+    query = select(ExamDispatch).where(ExamDispatch.application_id == application_id, ExamDispatch.kind == kind)
+    if resource_id is not None:
+        query = query.where(ExamDispatch.resource_id == resource_id)
+    # 旧表单没有试卷 ID。发过多份卷时，不能用其中一份的送达记录替另一份下结论。
+    matches = session.scalars(query.limit(2)).all()
+    if len(matches) == 1:
+        latest = dispatch_notification(session, matches[0].id)
+        if latest and latest.status in DELIVERED:
+            return matches[0]
+    return None
+
+
+def decide_exam(session: Session, application_id: int, *, kind: str, result: str, note: str, version: int,
+                resource_id: int | None = None) -> Application:
     if kind not in KINDS or result not in {"passed", "failed", "skipped"} or not note.strip():
         raise ValueError("请选择通过、不通过或跳过，并填写核实说明")
     application = lock_record(session, Application, application_id)
@@ -107,16 +121,19 @@ def decide_exam(session: Session, application_id: int, *, kind: str, result: str
     decisions = data.setdefault("exams", {})
     previous = decisions.get(kind)
     if previous:
-        if previous["result"] == result and previous["note"] == note.strip() and previous["version"] == version + 1:
+        if (previous["result"] == result and previous["note"] == note.strip() and previous["version"] == version + 1
+                and (resource_id is None or resource_id == previous.get("resource_id"))):
             return application
         raise ValueError("本阶段已确认，旧页面或冲突结论不能覆盖")
     if application.status != KINDS[kind][1] or data.get("workflow_revision", 0) != version:
         raise ValueError("阶段或版本已变化，请刷新")
-    if result != "skipped":
-        dispatches = session.scalars(select(ExamDispatch).where(ExamDispatch.application_id == application.id, ExamDispatch.kind == kind)).all()
-        if not any((n := dispatch_notification(session, d.id)) and n.status in DELIVERED for d in dispatches):
-            raise ValueError("请先完成发放，或核实待确认的邮件送达结果")
-    decisions[kind] = {"result": result, "note": note.strip(), "version": version + 1}
+    decision = {"result": result, "note": note.strip(), "version": version + 1}
+    if result != "skipped" or resource_id is not None:
+        dispatch = delivered_dispatch_for_decision(session, application.id, kind, resource_id)
+        if dispatch is None:
+            raise ValueError("请选择本次投递已送达的试卷，或先核实该卷的邮件送达结果")
+        decision.update(resource_id=dispatch.resource_id, dispatch_id=dispatch.id)
+    decisions[kind] = decision
     data["workflow_revision"] = version + 1
     application.extra_data = data
     transition_application(session, application.id, ApplicationStatus.REJECTED if result == "failed" else KINDS[kind][2],

@@ -2374,12 +2374,16 @@ def exams_page(request: Request, application_id: int | None = None, resource_id:
             preview = exams.preview_dispatch(application, resource)
         except ValueError as exc:
             preview_error = str(exc)
+    decision_kind = next((kind for kind, (_, stage, _) in exams.KINDS.items() if application and application.status == stage), None)
+    decision_dispatch = (exams.delivered_dispatch_for_decision(session, application.id, decision_kind, resource_id or None)
+                         if decision_kind else None)
     dispatches = session.scalars(select(ExamDispatch).where(ExamDispatch.application_id.in_(application_ids)).order_by(ExamDispatch.id.desc())).all()
     return _render(request, session, "exams.html", "exams", kinds=exams.KINDS,
         resources=session.scalars(select(ExamResource).where(resource_scope if recruitment_type != "all" else True).order_by(ExamResource.id.desc())).all(),
         jobs=session.scalars(select(Job).where(job_scope).order_by(Job.id)).all(),
         applications=session.scalars(select(Application).where(Application.id.in_(application_ids), Application.status.in_([ApplicationStatus.ASSESSMENT_PENDING, ApplicationStatus.WRITTEN_PENDING]))).all(),
         selected_application=application, selected_resource=resource, preview=preview, preview_error=preview_error, resource_request_key=secrets.token_hex(16),
+        decision_kind=decision_kind if not resource_id or decision_dispatch else None, decision_dispatch=decision_dispatch,
         dispatches=[{"record": d, "notification": exams.dispatch_notification(session, d.id)} for d in dispatches])
 
 
@@ -2475,9 +2479,10 @@ def send_exam_api(application_id: int, resource_id: int = Form(...), candidate_r
 
 
 @app.post("/api/applications/{application_id}/exams/decision")
-def decide_exam_api(application_id: int, kind: str = Form(...), result: str = Form(...), note: str = Form(...), version: int = Form(...), session: Session = Depends(get_db)):
+def decide_exam_api(application_id: int, kind: str = Form(...), result: str = Form(...), note: str = Form(...),
+                    version: int = Form(...), resource_id: int | None = Form(None), session: Session = Depends(get_db)):
     try:
-        application = exams.decide_exam(session, application_id, kind=kind, result=result, note=note, version=version)
+        application = exams.decide_exam(session, application_id, kind=kind, result=result, note=note, version=version, resource_id=resource_id)
         session.commit()
         return {"ok": True, "status": application.status.value, "message": "HR 结论已保存", "redirect": f"/candidates/{application.candidate_id}?application_id={application.id}"}
     except ValueError as exc:

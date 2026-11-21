@@ -35,13 +35,17 @@
 {% if preview %}<p>收件人：{{ preview.recipient }}　主题：{{ preview.subject }}</p><pre>{{ preview.content }}</pre>
 <p class="muted">只发送外部链接，内部文件不会随邮件发送。发放不代表考试完成。</p>
 <form method="post" action="/api/applications/{{ selected_application.id }}/exams/send"><input type="hidden" name="resource_id" value="{{ preview.resource_id }}"><input type="hidden" name="candidate_revision" value="{{ preview.candidate_revision }}"><button class="button button-primary" type="submit">确认发放 / 失败重试</button></form>{% endif %}
-{% if selected_application and not stage_mismatch and selected_application.status.value in ['assessment_pending','written_pending'] %}
+{% if decision_kind %}
 <form method="post" action="/api/applications/{{ selected_application.id }}/exams/decision" class="form-grid">
-<input type="hidden" name="version" value="{{ (selected_application.extra_data or {}).get('workflow_revision',0) }}"><input type="hidden" name="kind" value="{{ 'assessment' if selected_application.status.value == 'assessment_pending' else 'written' }}">
-<label class="field">HR 结论<select class="select" name="result"><option value="passed">通过</option><option value="failed">不通过</option><option value="skipped">跳过</option></select></label>
-<label class="field">核实说明（必填）<textarea class="textarea" name="note" required></textarea></label><button class="button" type="submit">保存结论并推进</button></form>{% endif %}
+<input type="hidden" name="version" value="{{ (selected_application.extra_data or {}).get('workflow_revision',0) }}"><input type="hidden" name="kind" value="{{ decision_kind }}">
+{% if decision_dispatch %}<input type="hidden" name="resource_id" value="{{ decision_dispatch.resource_id }}"><p>本次结论对应《{{ decision_dispatch.snapshot.title }}》（发放记录 #{{ decision_dispatch.id }}）</p>{% endif %}
+<label class="field">HR 结论<select class="select" name="result" required>{% if decision_dispatch %}<option value="passed">通过</option><option value="failed">不通过</option>{% else %}<option value="" disabled selected>通过或不通过请先选择已送达的试卷</option>{% endif %}<option value="skipped">跳过</option></select></label>
+<label class="field">核实说明（必填）<textarea class="textarea" name="note" required></textarea></label><button class="button" type="submit">保存结论并推进</button></form>
+{% elif selected_application and selected_resource and not stage_mismatch %}
+<p class="muted">本次投递尚无这份试卷的送达记录。请选择已送达的试卷填写结论，或不选试卷办理免试。</p>
+{% endif %}
 </div></section>
 <section class="work-surface"><header class="surface-header"><h2>发放历史</h2></header><div class="surface-body">
-{% for d in dispatches %}<details class="technical-details"><summary>{{ d.record.application.candidate.name }} · {{ d.record.application.job.title }} · {{ kinds[d.record.kind][0] }} · {{ d.record.snapshot.title }} · {{ d.notification.status.value if d.notification else '未发送' }}</summary><p>{{ d.record.snapshot.recipient }}</p><pre>{{ d.record.snapshot.content }}</pre><a href="/notifications">查看发送尝试与核实结果</a></details>{% else %}<p>暂无发放记录</p>{% endfor %}
+{% for d in dispatches %}<details class="technical-details"><summary>{{ d.record.application.candidate.name }} · {{ d.record.application.job.title }} · {{ kinds[d.record.kind][0] }} · {{ d.record.snapshot.title }} · {{ d.notification.status.value if d.notification else '未发送' }}</summary><p>{{ d.record.snapshot.recipient }}</p><pre>{{ d.record.snapshot.content }}</pre><a href="/exams?recruitment_type={{ recruitment_type }}&amp;application_id={{ d.record.application_id }}&amp;resource_id={{ d.record.resource_id }}">打开这次发放的试卷</a> · <a href="/notifications">查看发送尝试与核实结果</a></details>{% else %}<p>暂无发放记录</p>{% endfor %}
 </div></section></div>
 {% endblock %}

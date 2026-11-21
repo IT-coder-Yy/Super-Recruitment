@@ -473,6 +473,50 @@ def test_exam_retry_keeps_original_paper_through_preview_and_send(handover):
         assert session.scalar(select(func.count(ExamDispatch.id))) == 1
 
 
+@pytest.mark.parametrize("result, stage", [("passed", "written_pending"), ("failed", "rejected")])
+def test_exam_decision_uses_the_delivered_paper(handover, result, stage):
+    case = handover("exam")
+    client, headers, factory = case["b"], case["hb"], case["factory"]
+    assert confirm(case).status_code == 200
+    with account_scope(case["bid"]), factory.begin() as session:
+        first = session.get(ExamDispatch, case["target_id"])
+        second = ExamResource(job_id=first.application.job_id, kind=first.kind,
+                              title="替换卷 B", url="https://exam.example.test/b")
+        session.add(second)
+        session.flush()
+        aid, paper_a, paper_b = first.application_id, first.resource_id, second.id
+    case["delivery"][0] = True
+    sent = client.post(case["url"], headers=headers, data={**case["values"], "resource_id": paper_b})
+    assert sent.json()["status"] == "sent"
+    link = unescape(re.search(r'<a href="([^"]+)">回原业务页面重试</a>', client.get("/notifications").text)[1])
+    action = f"/api/applications/{aid}/exams/decision"
+    assert f"resource_id={paper_a}" in link and action not in client.get(link).text
+
+    values = {"kind": "assessment", "result": result, "version": 0, "note": "HR 核实试卷结果"}
+    for params in ({"resource_id": paper_a}, {}):
+        assert client.post(action, headers=headers, data={**values, **params}).status_code == 409
+    with factory() as session:
+        assert session.get(ExamDispatch, first.id).application.status == ApplicationStatus.ASSESSMENT_PENDING
+        assert not session.scalar(select(AuditLog.id).where(AuditLog.action == "exam.assessment_decided"))
+
+    assert client.post(f"/api/exams/resources/{paper_b}/delete", headers=headers).json()["ok"]
+    history = unescape(client.get(link).text)
+    paper_link = re.search(fr'<a href="([^"]*&application_id={aid}&resource_id={paper_b})">打开这次发放的试卷</a>', history)
+    assert paper_link
+    page = client.get(paper_link[1])
+    form = re.search(fr'<form method="post" action="{action}"[^>]*>(.*?)</form>', page.text, re.S)
+    assert form and f'name="resource_id" value="{paper_b}"' in form[1]
+    fields = {**values, "resource_id": paper_b}
+    assert client.post(action, headers=headers, data=fields).json()["status"] == stage
+    assert client.post(action, headers=headers, data=fields).status_code == 200
+    assert client.post(action, headers=headers, data={**fields, "resource_id": paper_a}).status_code == 409
+    with factory() as session:
+        dispatch_id = session.get(Notification, sent.json()["notification_id"]).target_id
+        audit, = session.scalars(select(AuditLog).where(AuditLog.action == "exam.assessment_decided"))
+        assert audit.after_data["resource_id"] == paper_b and audit.after_data["dispatch_id"] == dispatch_id
+        assert audit.after_data == session.get(ExamDispatch, dispatch_id).application.extra_data["exams"]["assessment"]
+
+
 @pytest.mark.parametrize("stage", [ApplicationStatus.WRITTEN_PENDING, ApplicationStatus.INTERVIEW_PENDING])
 def test_exam_retry_for_finished_stage_keeps_original_candidate(handover, stage):
     case = handover("exam")

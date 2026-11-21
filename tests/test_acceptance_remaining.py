@@ -354,7 +354,8 @@ def test_exam_failure_restart_retry_disable_and_snapshot(env, monkeypatch, tmp_p
         with factory() as session:
             assert session.scalar(select(func.count(ExamDispatch.id))) == 2
             assert session.get(ExamDispatch, dispatch.id).snapshot == snapshot
-        post(client, headers, f'/api/applications/{record.id}/exams/decision', kind=kind, result='passed', note='HR 核实', version=0 if kind == 'assessment' else 1)
+        post(client, headers, f'/api/applications/{record.id}/exams/decision', kind=kind, resource_id=new,
+             result='passed', note='HR 核实', version=0 if kind == 'assessment' else 1)
 
 
 @pytest.mark.parametrize('failure', ['timeout', 'refused'])

@@ -77,7 +77,7 @@ def prepare_upgrade(engine: Engine) -> Path | None:
     backup = None
     with engine.connect() as connection:
         version_pending = ("app_schema_versions" not in tables or
-                           connection.scalar(text("SELECT COUNT(*) FROM app_schema_versions WHERE version BETWEEN 1 AND 6")) != 6)
+                           connection.scalar(text("SELECT COUNT(*) FROM app_schema_versions WHERE version BETWEEN 1 AND 7")) != 7)
     if (pending or version_pending) and engine.dialect.name == "sqlite" and engine.url.database not in (None, ":memory:"):
         backup = backup_database(engine)
     with engine.begin() as connection:
@@ -160,9 +160,10 @@ def _repair_legacy_mail_history(connection) -> None:
             provider_response=values, updated_at=mail.c.updated_at))
 
     # 旧版只在首次确认后重发的那一条记录上保存授权 ID，后续失败尝试通过双向重试关联核对。
+    awaiting_verification = mail.c.status.in_(["unknown", "sending"]) & meta["retry_id"].as_integer().is_(None)
     retries = (attempts.add_columns(auth.c.after_data, mail.c.owner_user_id, mail.c.target_type,
                                     mail.c.target_id, mail.c.template, mail.c.recipient)
-        .where(mail.c.status == "failed", meta["retry_of"].as_integer().is_not(None),
+        .where((mail.c.status == "failed") | awaiting_verification, meta["retry_of"].as_integer().is_not(None),
                transfer.c.entity_id == mail.c.owner_user_id, transfer.c.created_at <= mail.c.created_at,
                current.is_(None) | (current == recorded)).order_by(mail.c.id))
     confirmed_links = {}
@@ -212,7 +213,7 @@ def finish_upgrade(engine: Engine) -> list[dict]:
         connection.execute(text("CREATE TABLE IF NOT EXISTS app_schema_versions (version INTEGER PRIMARY KEY)"))
         connection.execute(text("INSERT INTO app_schema_versions(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM app_schema_versions WHERE version=1)"))
         connection.execute(text("INSERT INTO app_schema_versions(version) SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM app_schema_versions WHERE version=2)"))
-        missing_mail_versions = {3, 5, 6} - set(connection.scalars(text("SELECT version FROM app_schema_versions")))
+        missing_mail_versions = {3, 5, 6, 7} - set(connection.scalars(text("SELECT version FROM app_schema_versions")))
         if missing_mail_versions:
             _repair_legacy_mail_history(connection)
             for version in sorted(missing_mail_versions):

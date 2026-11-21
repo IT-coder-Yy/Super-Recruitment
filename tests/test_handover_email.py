@@ -18,6 +18,7 @@ from app.db import Base, init_db
 from app.models import ApplicationStatus, AuditLog, ExamDispatch, ExamResource, Interview, Notification, NotificationStatus, Offer, User, utc_now
 from app.ownership import account_scope
 from app.services import offers
+from app.services.periodic import recover_inflight
 from tests.test_account_isolation import secure_env
 from tests.test_demo_contracts import application, ready_offer, resource
 
@@ -647,3 +648,38 @@ def test_upgrade_follows_confirmed_retry_chain(handover, old_version, broken):
     retry = case["b"].post(case["url"], headers=case["hb"])
     assert retry.status_code == (422 if broken else 200)
     assert len(case["messages"]) == (0 if broken else 1)
+
+
+@pytest.mark.parametrize("pending, received", [
+    (NotificationStatus.UNKNOWN, False), (NotificationStatus.SENDING, False), (NotificationStatus.UNKNOWN, True),
+])
+def test_upgrade_preserves_confirmation_until_delivery_is_verified(handover, pending, received):
+    case = handover()
+    assert confirm(case).status_code == 200
+    client, headers, factory = case["b"], case["hb"], case["factory"]
+    assert client.post(case["url"], headers=headers).status_code == 200
+    nid = client.post(case["url"], headers=headers).json()["notification_id"]
+    with factory.begin() as session:
+        mail = session.get(Notification, nid)
+        old = dict(mail.provider_response)
+        handover_id = old.pop("current_handover_audit_id")
+        assert "resend_authorization_id" not in old
+        mail.provider_response, mail.status = old, pending
+        session.connection().exec_driver_sql("DELETE FROM app_schema_versions WHERE version > 6")
+    init_db(factory.kw["bind"])
+    with factory.begin() as session:
+        mail = session.get(Notification, nid)
+        assert mail.status == pending and mail.provider_response == {**old, "current_handover_audit_id": handover_id}
+        recover_inflight(session)
+    case["delivery"][0] = True
+    client.post(case["url"], headers=headers)
+    assert len(case["attempts"]) == 3
+    verified = client.post(f"/api/notifications/{nid}/verify", headers=headers,
+                           data={"delivered": str(received).lower(), "note": "HR 已向收件人核实"})
+    assert verified.status_code == 200
+    retried = client.post(case["url"], headers=headers)
+    if not received:
+        assert retried.status_code == 200 and retried.json()["ok"]
+    assert len(case["messages"]) == (0 if received else 1)
+    with factory() as session:
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "notification.resend_authorized")) == 1

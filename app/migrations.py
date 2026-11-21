@@ -77,7 +77,7 @@ def prepare_upgrade(engine: Engine) -> Path | None:
     backup = None
     with engine.connect() as connection:
         version_pending = ("app_schema_versions" not in tables or
-                           connection.scalar(text("SELECT COUNT(*) FROM app_schema_versions WHERE version BETWEEN 1 AND 5")) != 5)
+                           connection.scalar(text("SELECT COUNT(*) FROM app_schema_versions WHERE version BETWEEN 1 AND 6")) != 6)
     if (pending or version_pending) and engine.dialect.name == "sqlite" and engine.url.database not in (None, ":memory:"):
         backup = backup_database(engine)
     with engine.begin() as connection:
@@ -147,10 +147,10 @@ def _repair_legacy_mail_history(connection) -> None:
                    & (auth.c.entity_id == meta["retry_of"].as_integer()) & (auth.c.created_at <= mail.c.created_at))
         .where(mail.c.channel == "email",
                transfer.c.action.in_(["account.data_transferred", "account.legacy_assigned"]),
-               transfer.c.entity_type == "user", current.is_not(None) | (transfer.c.entity_id == mail.c.owner_user_id),
-               (authorized.is_not(None) & ((recorded != authorized) | current.is_(None))) |
-               (authorized.is_(None) & (transfer.c.created_at > mail.c.created_at))))
-    for mail_id, values, sent_handover in connection.execute(attempts).all():
+               transfer.c.entity_type == "user", current.is_not(None) | (transfer.c.entity_id == mail.c.owner_user_id)))
+    corrections = attempts.where((authorized.is_not(None) & ((recorded != authorized) | current.is_(None))) |
+                                 (authorized.is_(None) & (transfer.c.created_at > mail.c.created_at)))
+    for mail_id, values, sent_handover in connection.execute(corrections).all():
         # 后来的交接只能证明当前归属；只有本次发送引用的授权能证明当时的编号。
         old_id = values.pop("handover_audit_id")
         values["current_handover_audit_id"] = values.get("current_handover_audit_id") or old_id
@@ -158,6 +158,29 @@ def _repair_legacy_mail_history(connection) -> None:
             values["handover_audit_id"] = sent_handover
         connection.execute(mail.update().where(mail.c.id == mail_id).values(
             provider_response=values, updated_at=mail.c.updated_at))
+
+    # 旧版只在首次确认后重发的那一条记录上保存授权 ID，后续失败尝试通过双向重试关联核对。
+    retries = (attempts.add_columns(auth.c.after_data, mail.c.owner_user_id, mail.c.target_type,
+                                    mail.c.target_id, mail.c.template, mail.c.recipient)
+        .where(mail.c.status == "failed", meta["retry_of"].as_integer().is_not(None),
+               transfer.c.entity_id == mail.c.owner_user_id, transfer.c.created_at <= mail.c.created_at,
+               current.is_(None) | (current == recorded)).order_by(mail.c.id))
+    confirmed_links = {}
+    for mail_id, values, authorized_id, authorized_sender, *business_record in connection.execute(retries):
+        handover_id = values["handover_audit_id"]
+        sender = {key: values[key] for key in ("smtp_source", "smtp_owner_id", "smtp_from", "smtp_username") if key in values}
+        context = (handover_id, business_record, sender)
+        previous = confirmed_links.pop((values["retry_of"], mail_id), None)
+        if values.get("resend_authorization_id"):
+            if authorized_id != handover_id or authorized_sender != sender:
+                continue
+        elif previous != context:
+            continue
+        if values.get("current_handover_audit_id") is None:
+            connection.execute(mail.update().where(mail.c.id == mail_id).values(
+                provider_response={**values, "current_handover_audit_id": handover_id}, updated_at=mail.c.updated_at))
+        if next_id := values.get("retry_id"):
+            confirmed_links[mail_id, next_id] = context
 
 
 def finish_upgrade(engine: Engine) -> list[dict]:
@@ -189,7 +212,7 @@ def finish_upgrade(engine: Engine) -> list[dict]:
         connection.execute(text("CREATE TABLE IF NOT EXISTS app_schema_versions (version INTEGER PRIMARY KEY)"))
         connection.execute(text("INSERT INTO app_schema_versions(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM app_schema_versions WHERE version=1)"))
         connection.execute(text("INSERT INTO app_schema_versions(version) SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM app_schema_versions WHERE version=2)"))
-        missing_mail_versions = {3, 5} - set(connection.scalars(text("SELECT version FROM app_schema_versions")))
+        missing_mail_versions = {3, 5, 6} - set(connection.scalars(text("SELECT version FROM app_schema_versions")))
         if missing_mail_versions:
             _repair_legacy_mail_history(connection)
             for version in sorted(missing_mail_versions):

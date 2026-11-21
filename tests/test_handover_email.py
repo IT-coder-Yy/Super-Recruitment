@@ -564,3 +564,42 @@ def test_upgrade_reuses_only_confirmed_legacy_retry(handover, old_version, has_p
     retry = case["b"].post(case["url"], headers=case["hb"])
     assert retry.status_code == (200 if has_proof else 422)
     assert len(case["messages"]) == (1 if has_proof else 0)
+
+
+@pytest.mark.parametrize("old_version, broken", [
+    (2, None), (4, None), (5, None), (5, "sender"), (5, "link"), (5, "target"), (5, "grant"),
+])
+def test_upgrade_follows_confirmed_retry_chain(handover, old_version, broken):
+    case = handover()
+    assert confirm(case).status_code == 200
+    ids = [case["b"].post(case["url"], headers=case["hb"]).json()["notification_id"] for _ in range(3)]
+    factory = case["factory"]
+    with factory.begin() as session:
+        first, middle, last = [session.get(Notification, nid) for nid in ids]
+        handover_id = first.provider_response["handover_audit_id"]
+        for attempt in (first, middle, last):
+            meta = dict(attempt.provider_response)
+            if old_version < 5 or attempt is not first:
+                meta.pop("current_handover_audit_id")
+            if attempt is first and broken == "grant":
+                meta.pop("resend_authorization_id")
+            if attempt is middle and broken == "sender":
+                meta["smtp_from"] = "another@example.test"
+            if attempt is middle and broken == "link":
+                meta.pop("retry_id")
+            if attempt is middle and broken == "target":
+                attempt.target_type = "interview"
+            attempt.provider_response = meta
+        previous = dict(last.provider_response)
+        session.connection().exec_driver_sql("DELETE FROM app_schema_versions WHERE version > ?", (old_version,))
+
+    init_db(factory.kw["bind"])
+    init_db(factory.kw["bind"])
+    with factory() as session:
+        expected = previous if broken else {**previous, "current_handover_audit_id": handover_id}
+        assert session.get(Notification, ids[-1]).provider_response == expected
+        assert session.scalar(select(func.count(AuditLog.id)).where(AuditLog.action == "notification.resend_authorized")) == 1
+    case["delivery"][0] = True
+    retry = case["b"].post(case["url"], headers=case["hb"])
+    assert retry.status_code == (422 if broken else 200)
+    assert len(case["messages"]) == (0 if broken else 1)

@@ -95,7 +95,7 @@ cd Super-Recruitment
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+. .\scripts\initialize_env.ps1
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -167,7 +167,7 @@ SMTP_FROM=同一个QQ邮箱
 仓库提供 Docker 配置；Docker 运行环境需单独验证。
 
 ```powershell
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+. .\scripts\initialize_env.ps1
 docker compose up --build
 ```
 
@@ -197,3 +197,9 @@ tests/                      # Python 和 JavaScript 测试
 samples/resumes/            # 可上传的虚构简历
 demo/                       # 功能预览与操作录屏
 ```
+
+## 会话密钥配置
+
+安装和启动脚本只在 `.env` 不存在时生成随机会话密钥，不覆盖已有配置。正式及 `local` 模式必须设置至少 32 字符的随机 `APP_SECRET_KEY`；缺失、空值、过短值和公开示例密钥会拒绝启动。只有显式 `APP_ENV=demo` 允许演示密钥。
+
+已有安装必须自行替换弱密钥并重启所有应用进程。密钥固定保存在部署环境或 `.env`；轮换后旧登录会话与预约签名失效，需要重新登录或签发预约链接。

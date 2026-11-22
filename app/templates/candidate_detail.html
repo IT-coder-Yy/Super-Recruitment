@@ -8,6 +8,7 @@
 {% set current = (rows|selectattr('id', 'equalto', selected_id)|first) or (rows[0] if rows else none) %}
 <div class="workflow-page detail-layout">
   <div class="stack">
+    {% if exam_receipt %}<p class="notice" role="status">{{ exam_receipt }}</p>{% endif %}
     <section class="work-surface">
       <div class="surface-body profile-hero">
         <span class="profile-avatar">{{ (candidate.name or '待')[:1] }}</span>

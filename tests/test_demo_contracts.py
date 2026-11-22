@@ -252,6 +252,11 @@ def test_saved_legacy_exam_form_returns_existing_decision(env, kind, next_stage,
     action = f"exam.{kind}_decided"
     with factory() as session:
         record = application(session, stage)
+        if paper_fields:
+            paper = ExamResource(id=paper_fields["resource_id"], job_id=record.job_id, kind=kind,
+                                 title="乙卷现名", url="https://exam.example.test/b")
+            session.add(ExamDispatch(id=paper_fields["dispatch_id"], application_id=record.id, resource=paper,
+                                     kind=kind, snapshot={"title": "发放时的乙卷 B"}))
         record.extra_data = history
         log_id = write_audit_log(session, actor="HR", action=action, entity_type="application",
                                  entity_id=record.id, after_data=saved).id
@@ -261,7 +266,15 @@ def test_saved_legacy_exam_form_returns_existing_decision(env, kind, next_stage,
 
     url = f"/api/applications/{record.id}/exams/decision"
     fields = {**form, "kind": kind}
-    assert post(client, headers, url, **fields)["status"] == stage.value
+    reply = post(client, headers, url, **fields)
+    assert reply["status"] == stage.value and "已读取" in reply["message"]
+    assert ("发放时的乙卷 B" if paper_fields else "旧记录未注明试卷") in reply["message"]
+    if paper_fields:
+        assert f"试卷 #{paper_fields['resource_id']}" in reply["message"]
+    landing = client.get(reply["redirect"])
+    assert landing.status_code == 200 and reply["message"] in landing.text
+    other = client.get(f"/candidates/{record.candidate_id}", params={"application_id": 0, "exam_receipt": kind})
+    assert reply["message"] not in other.text
     other_result = "failed" if result == "passed" else "passed"
     for change in ({"note": "不同备注"}, {"result": other_result}, {"version": 0}, {"resource_id": 1}):
         assert client.post(url, headers=headers, data={**fields, **change}).status_code == 409

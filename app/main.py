@@ -958,6 +958,21 @@ def candidates_page(request: Request, session: Session = Depends(get_db)):
     )
 
 
+def _saved_exam_receipt(session: Session, application: Application, kind: str) -> str | None:
+    decision = ((application.extra_data or {}).get("exams") or {}).get(kind)
+    if not decision:
+        return None
+    paper_id = decision.get("resource_id")
+    paper = f"对应试卷 #{paper_id}" if paper_id else "旧记录未注明试卷"
+    if decision.get("dispatch_id"):
+        dispatch = session.scalar(select(ExamDispatch).filter_by(
+            id=decision["dispatch_id"], application_id=application.id, kind=kind, resource_id=paper_id))
+        if dispatch and (title := dispatch.snapshot.get("title")):
+            paper = f"对应《{title}》（试卷 #{paper_id}，发放记录 #{dispatch.id}）"
+    outcome = {"passed": "通过", "failed": "不通过", "skipped": "跳过"}.get(decision.get("result"), "历史未记录")
+    return f"已读取原{exams.KINDS[kind][0]}结论「{outcome}」，{paper}。"
+
+
 @app.get("/candidates/{candidate_id}")
 def candidate_detail(
     candidate_id: int, request: Request, session: Session = Depends(get_db)
@@ -967,7 +982,10 @@ def candidate_detail(
         raise HTTPException(404, "候选人不存在")
     rows = [_application_row(item) for item in candidate.applications]
     profile = _candidate_profile(candidate)
-    selected = next((a for a in candidate.applications if str(a.id) == request.query_params.get("application_id")), None) or next(iter(candidate.applications), None)
+    selected = next((a for a in candidate.applications if str(a.id) == request.query_params.get("application_id")), None)
+    kind = request.query_params.get("exam_receipt")
+    exam_receipt = _saved_exam_receipt(session, selected, kind) if selected and kind in exams.KINDS else None
+    selected = selected or next(iter(candidate.applications), None)
     if selected:
         profile["chat_summary"] = (selected.extra_data or {}).get("manual_chat", "\n".join(str(m.get("content", "")) for link in selected.source_links for m in (link.source.raw_chat or [])))
     audits = session.scalars(
@@ -986,6 +1004,7 @@ def candidate_detail(
         "candidate_detail",
         candidate=candidate,
         profile=profile,
+        exam_receipt=exam_receipt,
         rows=rows,
         audits=audits,
         evaluation_history=sorted([e for a in candidate.applications for e in a.evaluations], key=lambda e: e.id, reverse=True),
@@ -2484,7 +2503,12 @@ def decide_exam_api(application_id: int, kind: str = Form(...), result: str = Fo
     try:
         application = exams.decide_exam(session, application_id, kind=kind, result=result, note=note, version=version, resource_id=resource_id)
         session.commit()
-        return {"ok": True, "status": application.status.value, "message": "HR 结论已保存", "redirect": f"/candidates/{application.candidate_id}?application_id={application.id}"}
+        redirect = f"/candidates/{application.candidate_id}?application_id={application.id}"
+        message = "HR 结论已保存"
+        if resource_id is None and result != "skipped":
+            message = _saved_exam_receipt(session, application, kind)
+            redirect += f"&exam_receipt={kind}"
+        return {"ok": True, "status": application.status.value, "message": message, "redirect": redirect}
     except ValueError as exc:
         session.rollback()
         raise HTTPException(409, str(exc)) from exc

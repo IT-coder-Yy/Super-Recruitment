@@ -60,6 +60,22 @@ def get_setting(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
 
+def demo_enabled() -> bool:
+    mode = get_setting("APP_ENV", "production").strip().lower()
+    if mode not in {"production", "local", "demo"}:
+        raise ValueError("APP_ENV 必须为 production、local 或显式演示模式 demo")
+    return mode == "demo"
+
+
+def session_secret() -> str:
+    key = get_setting("APP_SECRET_KEY").strip()
+    if demo_enabled():
+        return key or "explicit-demo-only-not-for-deployment"
+    if not key.strip() or key in {"change-this-local-secret", "explicit-demo-only-not-for-deployment"} or len(key) < 32:
+        raise ValueError("请配置至少 32 字符的随机 APP_SECRET_KEY；正式/本地模式不接受空值或示例密钥")
+    return key
+
+
 def public_url(path: str) -> str:
     from urllib.parse import urlsplit
     base = get_setting("APP_PUBLIC_BASE_URL") or "http://127.0.0.1:8000"

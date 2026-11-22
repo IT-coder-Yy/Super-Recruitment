@@ -19,9 +19,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Failed to install Python dependencies."
 }
 
-if (-not (Test-Path .env)) {
-    Copy-Item .env.example .env
-}
+. (Join-Path $PSScriptRoot 'initialize_env.ps1')
 
 Write-Host "Setup completed. Run .\scripts\start.ps1 to start the application."
 

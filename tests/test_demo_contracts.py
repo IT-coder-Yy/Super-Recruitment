@@ -242,10 +242,12 @@ def test_exam_delivery_is_separate_from_decision_and_freezes_resource(env, kind)
 @pytest.mark.parametrize("kind, next_stage", [("assessment", ApplicationStatus.WRITTEN_PENDING),
                                              ("written", ApplicationStatus.INTERVIEW_PENDING)])
 @pytest.mark.parametrize("result", ["passed", "failed"])
-def test_saved_legacy_exam_form_returns_existing_decision(env, kind, next_stage, result):
+@pytest.mark.parametrize("paper_fields", [{}, {"resource_id": 17, "dispatch_id": 23}], ids=["main", "intermediate"])
+def test_saved_legacy_exam_form_returns_existing_decision(env, kind, next_stage, result, paper_fields):
     client, headers, factory = env
     stage = ApplicationStatus.REJECTED if result == "failed" else next_stage
-    saved = {"result": result, "note": "HR 已核实原卷", "version": 2}
+    form = {"result": result, "note": "HR 已核实原卷", "version": 1}
+    saved = {**form, "version": 2, **paper_fields}
     history = {"workflow_revision": 2, "exams": {kind: saved}}
     action = f"exam.{kind}_decided"
     with factory() as session:
@@ -258,7 +260,7 @@ def test_saved_legacy_exam_form_returns_existing_decision(env, kind, next_stage,
         saved_at = record.updated_at
 
     url = f"/api/applications/{record.id}/exams/decision"
-    fields = {**saved, "kind": kind, "version": 1}
+    fields = {**form, "kind": kind}
     assert post(client, headers, url, **fields)["status"] == stage.value
     other_result = "failed" if result == "passed" else "passed"
     for change in ({"note": "不同备注"}, {"result": other_result}, {"version": 0}, {"resource_id": 1}):

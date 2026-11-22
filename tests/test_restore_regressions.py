@@ -106,7 +106,7 @@ def test_first_account_reports_backup_status(tmp_path, monkeypatch, in_memory):
 
 
 @pytest.mark.parametrize("source", ["dotenv", "process"])
-@pytest.mark.parametrize("operation", ["assign-legacy", "reset-password"])
+@pytest.mark.parametrize("operation", ["assign-legacy", "reset-password", "create"])
 def test_maintenance_backup_uses_deployment_paths(tmp_path, monkeypatch, source, operation):
     import subprocess
     import sys
@@ -141,7 +141,8 @@ def test_maintenance_backup_uses_deployment_paths(tmp_path, monkeypatch, source,
         else:
             monkeypatch.delenv(name, raising=False)
     command = "from app import accounts; accounts._password = lambda: 'synthetic-password'; accounts.main()"
-    subprocess.run([sys.executable, "-B", "-c", command, operation, "existing-hr"], cwd=tmp_path, check=True, capture_output=True, timeout=45)
+    username = "new-hr" if operation == "create" else "existing-hr"
+    subprocess.run([sys.executable, "-B", "-c", command, operation, username], cwd=tmp_path, check=True, capture_output=True, timeout=45)
     backup, = (database.parent / "backups").glob("*.db")
     restored = restore(backup, tmp_path / "restored")
     for name, original in files.items():

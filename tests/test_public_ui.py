@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from app.workbench import appointment_time
+from app.config import demo_enabled
 
 
 templates = Environment(
@@ -12,6 +13,7 @@ templates = Environment(
     autoescape=select_autoescape(["html"]),
 )
 templates.filters["appointment_time"] = appointment_time
+templates.globals["demo_enabled"] = demo_enabled
 
 
 def make_offer(status="sent"):

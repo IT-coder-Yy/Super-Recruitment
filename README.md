@@ -85,7 +85,7 @@ cd Super-Recruitment
 .\scripts\setup.ps1
 ```
 
-安装脚本会创建或复用 `testin` Conda 环境、安装 [requirements.txt](requirements.txt)，并在 `.env` 不存在时复制 [.env.example](.env.example)。模型、邮箱和会议服务按下方说明配置。
+安装脚本会创建或复用 `testin` Conda 环境、安装 [requirements.txt](requirements.txt)，并在 `.env` 不存在时根据 [.env.example](.env.example) 创建配置并生成随机会话密钥。模型、邮箱和会议服务按下方说明配置。
 
 <details>
 <summary>不使用 Conda：手动安装</summary>
@@ -139,7 +139,7 @@ SMTP_FROM=同一个QQ邮箱
 ### 3. 了解数据边界
 
 - **本地数据**：数据库、上传文件、导出和运行配置默认位于 `data/`；迁移时保留该目录，包括个人邮箱配置。密钥保存在本机配置文件中，未提供额外的静态加密。
-- **账号与权限**：每个账号只访问自己的候选人及关联流程，管理员也不能跨账号访问。全局模型和企微设置仅管理员可改，Offer 审批需要管理员或显式授权；公开链接只允许访问对应记录。
+- **账号与权限**：正式及 local 模式由服务器管理者创建账号。每个账号只访问自己的候选人及关联流程，管理员也不能跨账号访问。全局模型和企微设置仅管理员可改，Offer 审批需要管理员或显式授权；公开链接只允许访问对应记录。
 - **人工审批**：在线评估前对手机号和邮箱脱敏；薪资、职级与预计入职日期由 HR 填写，模型只辅助生成草稿和摘要。
 - **月历与导出**：项目内月历无需外部日历服务，XLSX/CSV 导出也不代表已同步腾讯文档。
 
@@ -149,7 +149,7 @@ SMTP_FROM=同一个QQ邮箱
 .\scripts\start.ps1
 ```
 
-打开 [管理端](http://127.0.0.1:8000)，使用已有账号登录。默认 `production` 和 `local` 模式只初始化结构，不生成演示账号或候选人；模拟采集入口也关闭。
+打开 [管理端](http://127.0.0.1:8000)，使用受控创建的账号登录。默认 `production` 和 `local` 模式只初始化结构，关闭自行注册和模拟采集。只有显式 `APP_ENV=demo` 模式会生成演示账号、候选人并开放演示注册。
 
 首次演示可按以下顺序操作：
 
@@ -197,6 +197,16 @@ tests/                      # Python 和 JavaScript 测试
 samples/resumes/            # 可上传的虚构简历
 demo/                       # 功能预览与操作录屏
 ```
+
+## 创建受控账号
+
+在服务器本机执行以下命令，交互输入并确认至少 12 字符的密码，输入不回显：
+
+```powershell
+conda run --no-capture-output -n testin python -m app.accounts create first-admin --admin
+```
+
+此命令创建首个管理员。创建普通 HR 时省略 `--admin`。用户名忽略大小写判重。已有数据库会在建号前连同附件和运行配置一起备份，创建操作写入审计。
 
 ## 账号权限与数据交接
 

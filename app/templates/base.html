@@ -45,7 +45,7 @@
         <p class="nav-label">管理</p>
         {{ nav_item('dashboard', '/dashboard', 'chart', '数据看板') }}
         {{ nav_item('import', '/import', 'database', '数据采集') }}
-        {{ nav_item('mock_platform', '/mock-platform', 'external', '模拟招聘平台') }}
+        {% if demo_enabled() %}{{ nav_item('mock_platform', '/mock-platform', 'external', '模拟招聘平台') }}{% endif %}
         {{ nav_item('audit', '/audit', 'audit', '审计日志') }}
       </nav>
       <div class="sidebar-bottom">

@@ -700,6 +700,9 @@ def _remaining_path(
 
 def initialize_demo(session_factory=SessionLocal) -> dict[str, int]:
     from app.ownership import account_scope
+    from app.config import demo_enabled
+    if not demo_enabled():
+        raise ValueError("演示初始化仅允许 APP_ENV=demo，请使用独立数据目录")
     init_db(session_factory.kw["bind"])
     with account_scope(None), session_scope(session_factory) as session:
         user = _seed_demo_user(session)

@@ -34,6 +34,16 @@ def create_account(session, username: str, password: str, *, admin=False, approv
     return user
 
 
+def reset_password(session, username: str, password: str) -> None:
+    if len(password) < 12:
+        raise ValueError("正式账号密码至少需要 12 个字符")
+    user = session.scalar(select(User).where(User.normalized_username == normalize_username(username)))
+    if user is None:
+        raise ValueError("指定账号不存在")
+    user.password_hash, user.is_active = hash_password(password), True
+    session.add(AuditLog(owner_user_id=user.id, actor="本机账号管理", action="account.password_reset", entity_type="user", entity_id=user.id))
+
+
 def assign_data(session, target: User, *, source: User | None = None,
                 confirmed_mail_ids: list[int] | None = None) -> dict[str, int]:
     """不合并跨账号重名记录；唯一约束冲突时整个交接事务回滚。"""
@@ -107,6 +117,8 @@ def main() -> None:
     with account_scope(None), SessionLocal.begin() as session:
         if args.command == "create":
             create_account(session, args.username, password, admin=args.admin, approve_offers=args.approve_offers)
+        elif args.command == "reset-password":
+            reset_password(session, args.username, password)
         else:
             user = session.scalar(select(User).where(User.normalized_username == normalize_username(args.username)))
             if user is None:
@@ -119,9 +131,6 @@ def main() -> None:
                         raise ValueError("来源账号不存在")
                 counts = assign_data(session, user, source=source,
                                      confirmed_mail_ids=args.confirm_assigned_mail if args.command == "assign-legacy" else None)
-            elif args.command == "reset-password":
-                user.password_hash, user.is_active = hash_password(password), True
-                session.add(AuditLog(owner_user_id=user.id, actor="本机账号管理", action="account.password_reset", entity_type="user", entity_id=user.id))
             else:
                 changes = {key: value == "yes" for key, value in {"is_active": args.active, "is_admin": args.admin,
                            "can_approve_offers": args.approve_offers}.items() if value is not None}

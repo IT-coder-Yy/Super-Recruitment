@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from zoneinfo import ZoneInfo
+import hmac
 import secrets
 import re
 import time
@@ -23,6 +24,7 @@ from app.config import (
     clear_llm_api_key,
     ensure_runtime_dirs,
     get_setting,
+    demo_enabled,
     session_secret,
     public_integration_settings,
     public_llm_settings,
@@ -157,6 +159,7 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "app" / "static"), name="static")
 templates = Jinja2Templates(directory=ROOT_DIR / "app" / "templates")
 templates.env.filters["appointment_time"] = appointment_time
+templates.env.globals["demo_enabled"] = demo_enabled
 
 PUBLIC_EXACT_PATHS = {"/health", "/login", "/register", "/favicon.ico"}
 PUBLIC_PATH_PREFIXES = ("/static/", "/schedule/", "/offer/")
@@ -220,12 +223,17 @@ def _followup_scope(application_ids):
 
 def startup() -> None:
     init_db()
-    with account_scope(None), SessionLocal(info={"account_id": None}) as session:
-        empty = not session.scalar(select(func.count(Candidate.id)))
-    if empty:
+    is_demo = demo_enabled()
+    if is_demo:
         from app.seed import initialize_demo
         initialize_demo(SessionLocal)
-    with SessionLocal() as session:
+    with account_scope(None), session_scope(SessionLocal) as session:
+        if not is_demo:
+            demo_user = session.scalar(select(User).where(User.normalized_username == "demo-admin"))
+            if demo_user and demo_user.is_active and verify_password("demo123456", demo_user.password_hash):
+                demo_user.is_active = False
+                session.add(AuditLog(owner_user_id=demo_user.id, actor="系统启动", action="account.default_password_disabled",
+                                     entity_type="user", entity_id=demo_user.id))
         user_ids = session.scalars(select(User.id)).all()
     for user_id in user_ids:
         with account_scope(user_id), session_scope(SessionLocal) as session:
@@ -265,7 +273,9 @@ def _foreign_resource(request: Request, user_id: int) -> bool:
     return False
 
 
-
+def _session_auth_tag(user: User) -> str:
+    # 密码变化使旧会话失效，Cookie 中不暴露密码散列。
+    return hmac.digest(SESSION_SECRET.encode(), user.password_hash.encode(), "sha256").hex()
 
 
 @app.middleware("http")
@@ -292,7 +302,8 @@ async def require_authentication(request: Request, call_next):
         with SessionLocal() as session:
             user = session.get(User, user_id)
 
-    if user is None or not user.is_active:
+    auth_tag = request.session.get("auth_tag")
+    if user is None or not user.is_active or not isinstance(auth_tag, str) or not secrets.compare_digest(auth_tag, _session_auth_tag(user)):
         request.session.clear()
         if path.startswith("/api/") or path in {"/docs", "/redoc", "/openapi.json"}:
             return JSONResponse({"detail": "请先登录"}, status_code=401)
@@ -771,6 +782,7 @@ def login(
     _clear_login_failures(request, username)
     request.session.clear()
     request.session["user_id"] = user.id
+    request.session["auth_tag"] = _session_auth_tag(user)
     _csrf_token(request)
     return RedirectResponse("/", status_code=303)
 
@@ -1138,6 +1150,8 @@ def import_page(request: Request, session: Session = Depends(get_db)):
 
 @app.get("/mock-platform")
 def mock_platform_page(request: Request, session: Session = Depends(get_db)):
+    if not demo_enabled():
+        raise HTTPException(403, "模拟招聘平台仅在显式 Demo 模式开放")
     return _render(request, session, "mock_platform.html", "mock_platform")
 
 
@@ -1418,6 +1432,8 @@ def _save_settings(
 
 
 def _capture_mock_recruitment_data(session: Session) -> dict[str, Any]:
+    if not demo_enabled():
+        raise HTTPException(403, "模拟采集仅在显式 Demo 模式开放")
     summary = seed_database(session)
     session.commit()
     return {

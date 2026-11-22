@@ -134,7 +134,8 @@ def main() -> None:
         print("迁移行数：", counts)
     if args.command == "assign-legacy" and args.confirm_assigned_mail:
         print("已补录邮件：", args.confirm_assigned_mail)
-    print("已完成。备份：", backup or "内存库无需备份")
+    in_memory = engine.dialect.name == "sqlite" and engine.url.database in (None, ":memory:")
+    print("已完成。备份：", backup or ("内存库无需备份" if in_memory else "没有旧 SQLite 数据库文件可备份"))
 
 
 if __name__ == "__main__":

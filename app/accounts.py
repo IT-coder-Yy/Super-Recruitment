@@ -45,7 +45,8 @@ def main() -> None:
     init_db()
     with SessionLocal.begin() as session:
         create_account(session, args.username, password)
-    print("已完成。备份：", backup or "内存库无需备份")
+    in_memory = engine.dialect.name == "sqlite" and engine.url.database in (None, ":memory:")
+    print("已完成。备份：", backup or ("内存库无需备份" if in_memory else "没有旧 SQLite 数据库文件可备份"))
 
 
 if __name__ == "__main__":

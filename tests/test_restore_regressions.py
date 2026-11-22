@@ -89,6 +89,22 @@ def test_restore_regressions_reject_unmapped_or_unarchived_paths(tmp_path, inval
     assert not destination.exists()
 
 
+@pytest.mark.parametrize("in_memory", [False, True], ids=["disk", "memory"])
+def test_first_account_reports_backup_status(tmp_path, monkeypatch, in_memory):
+    import subprocess
+    import sys
+
+    database = tmp_path / "first.db"
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:" if in_memory else f"sqlite:///{database.as_posix()}")
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("APP_RUNTIME_ENV", str(tmp_path / "runtime.env"))
+    command = "from app import accounts; accounts._password = lambda: 'synthetic-password'; accounts.main()"
+    result = subprocess.run([sys.executable, "-X", "utf8", "-B", "-c", command, "create", "first-hr"],
+                            capture_output=True, encoding="utf-8", check=True, timeout=45)
+    assert ("内存库无需备份" if in_memory else "没有旧 SQLite 数据库文件可备份") in result.stdout
+    assert database.exists() == (not in_memory)
+
+
 @pytest.mark.parametrize("source", ["dotenv", "process"])
 def test_maintenance_backup_uses_deployment_paths(tmp_path, monkeypatch, source):
     import subprocess

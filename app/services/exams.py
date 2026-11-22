@@ -116,7 +116,12 @@ def decide_exam(session: Session, application_id: int, *, kind: str, result: str
                 resource_id: int | None = None) -> Application:
     if kind not in KINDS or result not in {"passed", "failed", "skipped"} or not note.strip():
         raise ValueError("请选择通过、不通过或跳过，并填写核实说明")
+    decision = {"result": result, "note": note.strip(), "version": version + 1}
     if result != "skipped" and resource_id is None:
+        # 旧版只保存这三个字段。匹配时直接读取，避免写锁改变投递的更新时间。
+        application = session.get(Application, application_id, populate_existing=True)
+        if application is not None and ((application.extra_data or {}).get("exams") or {}).get(kind) == decision:
+            return application
         raise ValueError("缺少试卷编号，请刷新页面后选择已送达的试卷，再提交结论")
     application = lock_record(session, Application, application_id)
     data = deepcopy(application.extra_data or {})
@@ -129,7 +134,6 @@ def decide_exam(session: Session, application_id: int, *, kind: str, result: str
         raise ValueError("本阶段已确认，旧页面或冲突结论不能覆盖")
     if application.status != KINDS[kind][1] or data.get("workflow_revision", 0) != version:
         raise ValueError("阶段或版本已变化，请刷新")
-    decision = {"result": result, "note": note.strip(), "version": version + 1}
     if result != "skipped" or resource_id is not None:
         dispatch = delivered_dispatch_for_decision(session, application.id, kind, resource_id)
         if dispatch is None:

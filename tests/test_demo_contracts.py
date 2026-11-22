@@ -28,7 +28,7 @@ from app.services.evaluations import evaluate_application_record, matching_input
 from app.services.exams import decide_exam, delete_or_disable, send_exam
 from app.services.onboarding import update_onboarding
 from app.services.periodic import recover_inflight, run_followups
-from app.services.workflow import create_application, get_or_create_job_version
+from app.services.workflow import create_application, get_or_create_job_version, write_audit_log
 
 
 @pytest.fixture()
@@ -237,6 +237,37 @@ def test_exam_delivery_is_separate_from_decision_and_freezes_resource(env, kind)
             decide_exam(session, app.id, kind=kind, result="passed", note="人工核实通过", version=0)
         with pytest.raises(ValueError):
             decide_exam(session, app.id, kind=kind, resource_id=paper.id, result="failed", note="旧页面冲突", version=0)
+
+
+@pytest.mark.parametrize("kind, next_stage", [("assessment", ApplicationStatus.WRITTEN_PENDING),
+                                             ("written", ApplicationStatus.INTERVIEW_PENDING)])
+@pytest.mark.parametrize("result", ["passed", "failed"])
+def test_saved_legacy_exam_form_returns_existing_decision(env, kind, next_stage, result):
+    client, headers, factory = env
+    stage = ApplicationStatus.REJECTED if result == "failed" else next_stage
+    saved = {"result": result, "note": "HR 已核实原卷", "version": 2}
+    history = {"workflow_revision": 2, "exams": {kind: saved}}
+    action = f"exam.{kind}_decided"
+    with factory() as session:
+        record = application(session, stage)
+        record.extra_data = history
+        log_id = write_audit_log(session, actor="HR", action=action, entity_type="application",
+                                 entity_id=record.id, after_data=saved).id
+        session.commit()
+        session.refresh(record)
+        saved_at = record.updated_at
+
+    url = f"/api/applications/{record.id}/exams/decision"
+    fields = {**saved, "kind": kind, "version": 1}
+    assert post(client, headers, url, **fields)["status"] == stage.value
+    other_result = "failed" if result == "passed" else "passed"
+    for change in ({"note": "不同备注"}, {"result": other_result}, {"version": 0}, {"resource_id": 1}):
+        assert client.post(url, headers=headers, data={**fields, **change}).status_code == 409
+    with factory() as session:
+        current = session.get(Application, record.id)
+        assert (current.status, current.extra_data, current.updated_at) == (stage, history, saved_at)
+        assert session.execute(select(AuditLog.id, AuditLog.after_data).where(
+            AuditLog.entity_id == record.id, AuditLog.action == action)).all() == [(log_id, saved)]
 
 
 def test_resource_download_auth_type_and_unused_delete(env):

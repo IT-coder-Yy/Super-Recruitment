@@ -76,9 +76,13 @@ import base64,json,re
 from fastapi.testclient import TestClient
 from itsdangerous import TimestampSigner
 from app.main import app
+from app.accounts import create_account
+from app.db import SessionLocal
 with TestClient(app) as client:
+    with SessionLocal.begin() as session:
+        create_account(session, "session-reviewer", "synthetic-review-password")
     token=re.search(r'name="csrf_token" value="([^"]+)"',client.get('/login').text)[1]
-    assert client.post('/login',data={'username':'demo-admin','password':'demo123456','csrf_token':token},follow_redirects=False).status_code==303
+    assert client.post('/login',data={'username':'session-reviewer','password':'synthetic-review-password','csrf_token':token},follow_redirects=False).status_code==303
     assert client.get('/api/candidates').status_code==200
 with TestClient(app) as forged:
     payload=base64.b64encode(json.dumps({'user_id':1}).encode())

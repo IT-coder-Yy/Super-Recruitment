@@ -91,15 +91,22 @@ def test_explicit_demo_boot_and_capture_do_not_recreate_deleted_account(tmp_path
 from app.main import startup,_capture_mock_recruitment_data
 from app.db import SessionLocal
 from app.models import User,Candidate
-from sqlalchemy import select,func,delete
+from sqlalchemy import select, func
+from app.accounts import assign_data, create_account
+from app.ownership import account_scope
 startup()
-with SessionLocal() as session:
-    assert session.scalar(select(func.count(Candidate.id)))==7
-    assert session.scalar(select(func.count(User.id)))==1
-    session.execute(delete(User).where(User.normalized_username=='demo-admin'))
-    session.commit()
+with SessionLocal.begin() as session:
+    demo = session.scalars(select(User)).one()
+    assert demo.normalized_username == "demo-admin" and demo.is_admin
+    assert session.scalar(select(func.count(Candidate.id)).where(Candidate.owner_user_id == demo.id)) == 7
+    recipient = create_account(session, "successor", "synthetic-review-password")
+    recipient_id = recipient.id
+    assign_data(session, recipient, source=demo)
+    session.delete(demo)
+with account_scope(recipient_id), SessionLocal() as session:
     _capture_mock_recruitment_data(session)
-    assert session.scalar(select(func.count(User.id)))==0
+    assert session.scalars(select(User.id)).all() == [recipient_id]
+    assert session.scalar(select(func.count(Candidate.id))) == 7
 """
     result = subprocess.run([sys.executable,"-X","utf8","-B","-c",code],env=environment,capture_output=True,text=True,encoding="utf-8",timeout=45)
     assert result.returncode == 0, result.stderr
